@@ -3,8 +3,19 @@ import "./globals.css";
 import { CartProvider } from "./context/CartContext";
 
 export const metadata: Metadata = {
-  title: "GlobalMart",
-  description: "Premium E-Commerce Store",
+  title: "NovaCart | Premium Online Shopping",
+  description:
+    "NovaCart is your premium online shopping destination for clothing, shoes, electronics, accessories, and much more.",
+  keywords: [
+    "NovaCart",
+    "Online Shopping",
+    "E-Commerce",
+    "Clothing",
+    "Shoes",
+    "Fashion",
+    "Electronics",
+    "India",
+  ],
 };
 
 export default function RootLayout({
@@ -15,9 +26,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <CartProvider>
-          {children}
-        </CartProvider>
+        <CartProvider>{children}</CartProvider>
       </body>
     </html>
   );
