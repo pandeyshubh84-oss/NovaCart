@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { supabase } from "../lib/supabase";
+
 type ProductFormProps = {
   name: string;
   setName: (value: string) => void;
@@ -51,6 +54,35 @@ export default function ProductForm({
   isEditing = false,
   onCancel,
 }: ProductFormProps) {
+  const [uploading, setUploading] = useState(false);
+
+  async function uploadImage(file: File) {
+    try {
+      setUploading(true);
+
+      const fileName = `${Date.now()}-${file.name}`;
+
+      const { error } = await supabase.storage
+        .from("product-images")
+        .upload(fileName, file);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage
+        .from("product-images")
+        .getPublicUrl(fileName);
+
+      setImage(publicUrl);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="bg-white rounded-2xl shadow-lg p-6">
 
@@ -90,12 +122,37 @@ export default function ProductForm({
           onChange={(e) => setStock(e.target.value)}
         />
 
-        <input
-          className="border rounded-xl p-3 md:col-span-2"
-          placeholder="Image URL"
-          value={image}
-          onChange={(e) => setImage(e.target.value)}
-        />
+        <div className="md:col-span-2">
+
+          <label className="font-semibold block mb-2">
+            Product Image
+          </label>
+
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              if (e.target.files?.[0]) {
+                uploadImage(e.target.files[0]);
+              }
+            }}
+          />
+
+          {uploading && (
+            <p className="text-blue-600 mt-2">
+              Uploading image...
+            </p>
+          )}
+
+          {image && (
+            <img
+              src={image}
+              alt="Preview"
+              className="w-40 h-40 object-cover rounded-xl mt-4 border"
+            />
+          )}
+
+        </div>
 
         <textarea
           className="border rounded-xl p-3 md:col-span-2"
@@ -108,6 +165,7 @@ export default function ProductForm({
       </div>
 
       <label className="flex items-center gap-3 mt-5">
+
         <input
           type="checkbox"
           checked={featured}
@@ -115,19 +173,21 @@ export default function ProductForm({
         />
 
         Featured Product
+
       </label>
 
       <div className="flex gap-4 mt-6">
 
         <button
           onClick={onSubmit}
+          disabled={uploading}
           className={`flex-1 text-white py-3 rounded-xl font-bold text-lg transition ${
             isEditing
               ? "bg-green-600 hover:bg-green-700"
               : "bg-blue-600 hover:bg-blue-700"
           }`}
         >
-          {buttonText}
+          {uploading ? "Uploading..." : buttonText}
         </button>
 
         {isEditing && (

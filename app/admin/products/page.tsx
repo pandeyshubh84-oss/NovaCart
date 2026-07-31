@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 import ProductForm from "../../components/ProductForm";
 import ProductTable from "../../components/ProductTable";
 
 export default function AdminProductsPage() {
+  const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
+
   const [products, setProducts] = useState<any[]>([]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -18,6 +23,25 @@ export default function AdminProductsPage() {
   const [image, setImage] = useState("");
   const [stock, setStock] = useState("");
   const [featured, setFeatured] = useState(false);
+
+  useEffect(() => {
+    checkUser();
+  }, []);
+
+  async function checkUser() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      router.replace("/login");
+      return;
+    }
+
+    await loadProducts();
+
+    setLoading(false);
+  }
 
   async function loadProducts() {
     const { data, error } = await supabase
@@ -32,10 +56,6 @@ export default function AdminProductsPage() {
 
     setProducts(data || []);
   }
-
-  useEffect(() => {
-    loadProducts();
-  }, []);
 
   function resetForm() {
     setEditingId(null);
@@ -136,8 +156,19 @@ export default function AdminProductsPage() {
     alert("🗑 Product Deleted Successfully");
   }
 
+  if (loading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        <h2 className="text-2xl font-bold">
+          Loading Products...
+        </h2>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-gray-100 p-8">
+
       <h1 className="text-4xl font-bold mb-8">
         Product Management
       </h1>
@@ -170,6 +201,7 @@ export default function AdminProductsPage() {
           onDelete={handleDelete}
         />
       </div>
+
     </main>
   );
 }

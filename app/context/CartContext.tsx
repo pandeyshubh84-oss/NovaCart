@@ -9,7 +9,7 @@ import {
 } from "react";
 
 export type Product = {
-  id: number;
+  id: string;
   name: string;
   description: string;
   price: number;
@@ -19,7 +19,7 @@ export type Product = {
 type CartContextType = {
   cart: Product[];
   addToCart: (product: Product) => void;
-  removeFromCart: (id: number) => void;
+  removeFromCart: (id: string) => void;
   clearCart: () => void;
   totalPrice: number;
 };
@@ -47,17 +47,17 @@ export function CartProvider({
     localStorage.setItem("globalmart-cart", JSON.stringify(cart));
   }, [cart]);
 
-function addToCart(product: Product) {
-  console.log("Adding:", product);
+  function addToCart(product: Product) {
+    console.log("Adding:", product);
 
-  setCart((prev) => {
-    const updated = [...prev, product];
-    console.log("Updated Cart:", updated);
-    return updated;
-  });
-}
+    setCart((prev) => {
+      const updated = [...prev, product];
+      console.log("Updated Cart:", updated);
+      return updated;
+    });
+  }
 
-  function removeFromCart(id: number) {
+  function removeFromCart(id: string) {
     setCart((prev) => prev.filter((item) => item.id !== id));
   }
 
@@ -89,9 +89,7 @@ export function useCart() {
   const context = useContext(CartContext);
 
   if (!context) {
-    throw new Error(
-      "useCart must be used inside CartProvider"
-    );
+    throw new Error("useCart must be used inside CartProvider");
   }
 
   return context;

@@ -1,14 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useCart } from "../context/CartContext";
 
 type Product = {
-  id: number;
+  id: string;
   name: string;
   description: string;
   price: number;
   image: string;
-  stock?: number;
+ stock?: number;
 };
 
 export default function ProductCard({
@@ -31,20 +32,24 @@ export default function ProductCard({
       </div>
 
       {/* Product Image */}
-      <div className="relative w-full h-72 bg-gray-100">
-       <img
-  src={product.image}
-  alt={product.name}
-  className="w-full h-full object-cover"
-/>
-      </div>
+      <Link href={`/product/${product.id}`}>
+        <div className="relative w-full h-72 bg-gray-100 cursor-pointer">
+          <img
+            src={product.image}
+            alt={product.name}
+            className="w-full h-full object-cover"
+          />
+        </div>
+      </Link>
 
       {/* Product Info */}
       <div className="p-5">
 
-        <h2 className="text-2xl font-bold">
-          {product.name}
-        </h2>
+        <Link href={`/product/${product.id}`}>
+          <h2 className="text-2xl font-bold hover:text-blue-600 cursor-pointer">
+            {product.name}
+          </h2>
+        </Link>
 
         <p className="text-gray-500 mt-2">
           {product.description}
@@ -60,7 +65,6 @@ export default function ProductCard({
 
         {/* Price */}
         <div className="flex items-center gap-3 mt-4">
-
           <span className="text-4xl font-bold text-blue-600">
             ₹{product.price}
           </span>
@@ -68,7 +72,6 @@ export default function ProductCard({
           <span className="line-through text-gray-400 text-xl">
             ₹{oldPrice}
           </span>
-
         </div>
 
         {/* Delivery */}
@@ -81,16 +84,13 @@ export default function ProductCard({
           📦 In Stock
         </p>
 
-        {/* Button */}
-<button
-  onClick={() => {
-    console.log("Button clicked");
-    addToCart(product);
-  }}
-  className="w-full mt-5 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold transition"
->
-  Add to Cart
-</button>
+        {/* Add to Cart Button */}
+        <button
+          onClick={() => addToCart(product)}
+          className="w-full mt-5 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold transition"
+        >
+          Add to Cart
+        </button>
 
       </div>
     </div>

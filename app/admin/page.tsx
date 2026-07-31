@@ -1,99 +1,105 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "../lib/supabase";
 
 export default function AdminPage() {
-  const [orders, setOrders] = useState<any[]>([]);
+  const router = useRouter();
 
-  async function loadOrders() {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.log(error);
-      return;
-    }
-
-    setOrders(data || []);
-  }
-
-  async function updateStatus(id: string, status: string) {
-    console.log(id, status);
-    
-    const { error } = await supabase
-      .from("orders")
-      .update({ status })
-      .eq("id", id);
-
-    if (error) {
-      alert(JSON.stringify(error, null, 2));
-      console.log(error);
-      return;
-    }
-
-    loadOrders();
-  }
+  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState("");
 
   useEffect(() => {
-    loadOrders();
+    checkUser();
   }, []);
+
+  async function checkUser() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      router.replace("/login");
+      return;
+    }
+
+    setEmail(session.user.email || "");
+    setLoading(false);
+  }
+
+  async function logout() {
+    await supabase.auth.signOut();
+
+    alert("Logged out successfully.");
+
+    router.push("/login");
+  }
+
+  if (loading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        <h2 className="text-2xl font-bold">Loading...</h2>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gray-100 p-8">
-      <h1 className="text-4xl font-bold mb-8">
-        Admin Dashboard
-      </h1>
+      <div className="max-w-5xl mx-auto">
 
-      <div className="space-y-6">
-        {orders.map((order) => (
-          <div
-            key={order.id}
-            className="bg-white rounded-2xl shadow p-6"
+        <div className="flex justify-between items-center mb-8">
+
+          <div>
+            <h1 className="text-4xl font-bold">
+              NovaCart Admin
+            </h1>
+
+            <p className="text-gray-600 mt-2">
+              Logged in as <strong>{email}</strong>
+            </p>
+          </div>
+
+          <button
+            onClick={logout}
+            className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold"
+          >
+            Logout
+          </button>
+
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+
+          <Link
+            href="/admin/products"
+            className="bg-white rounded-2xl shadow-lg p-8 hover:shadow-xl transition"
           >
             <h2 className="text-2xl font-bold">
-              {order.customer_name}
+              📦 Products
             </h2>
 
-            <p>📞 {order.phone}</p>
-            <p>📧 {order.email}</p>
-            <p>🏠 {order.address}</p>
-
-            <p>
-              {order.city} - {order.pincode}
+            <p className="text-gray-600 mt-2">
+              Add, edit and manage products.
             </p>
+          </Link>
 
-            <p className="mt-3 font-bold text-blue-600">
-              Total: ₹{order.total}
+          <Link
+            href="/admin/orders"
+            className="bg-white rounded-2xl shadow-lg p-8 hover:shadow-xl transition"
+          >
+            <h2 className="text-2xl font-bold">
+              🛒 Orders
+            </h2>
+
+            <p className="text-gray-600 mt-2">
+              View and update customer orders.
             </p>
+          </Link>
 
-            <p className="mt-2">
-              Payment: {order.payment_method}
-            </p>
+        </div>
 
-            <div className="mt-4">
-              <label className="font-bold">
-                Order Status
-              </label>
-
-              <select
-                value={order.status}
-                onChange={(e) =>
-                  updateStatus(order.id, e.target.value)
-                }
-                className="border p-2 rounded ml-3"
-              >
-                <option>Pending</option>
-                <option>Processing</option>
-                <option>Shipped</option>
-                <option>Delivered</option>
-                <option>Cancelled</option>
-              </select>
-            </div>
-          </div>
-        ))}
       </div>
     </main>
   );
