@@ -18,11 +18,13 @@ type Product = {
   featured: boolean;
 };
 
+const ADMIN_EMAIL = "j.ptravels2297@gmail.com";
+
 export default function AdminProductsPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
-
+  const [saving, setSaving] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -36,40 +38,103 @@ export default function AdminProductsPage() {
   const [featured, setFeatured] = useState(false);
 
   useEffect(() => {
-    checkUser();
+    checkAdmin();
   }, []);
 
-  async function checkUser() {
+  /* =========================================================
+     ADMIN AUTH
+  ========================================================= */
+
+  async function checkAdmin() {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.replace("/login");
+        return;
+      }
+
+      const userEmail =
+        session.user.email?.toLowerCase().trim() || "";
+
+      if (userEmail !== ADMIN_EMAIL.toLowerCase()) {
+        alert("⛔ Access denied. Admin only.");
+
+        await supabase.auth.signOut();
+
+        router.replace("/login");
+        return;
+      }
+
+      await loadProducts();
+
+      setLoading(false);
+    } catch (error) {
+      console.error("ADMIN AUTH ERROR:", error);
+
+      alert("Unable to verify admin access.");
+
+      router.replace("/login");
+    }
+  }
+
+  /* =========================================================
+     GET SESSION TOKEN
+  ========================================================= */
+
+  async function getAccessToken() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
-    if (!session) {
-      router.replace("/login");
-      return;
+    if (!session?.access_token) {
+      throw new Error(
+        "Your session has expired. Please login again."
+      );
     }
 
-    await loadProducts();
-
-    setLoading(false);
+    return session.access_token;
   }
+
+  /* =========================================================
+     LOAD PRODUCTS
+  ========================================================= */
 
   async function loadProducts() {
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .order("created_at", { ascending: false });
+    try {
+      const token = await getAccessToken();
 
-    if (error) {
+      const response = await fetch("/api/admin/products", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || "Unable to load products."
+        );
+      }
+
+      setProducts(result.products || []);
+    } catch (error: any) {
       console.error("LOAD PRODUCTS ERROR:", error);
-      alert(error.message);
-      return;
+
+      alert(
+        error?.message || "Unable to load products."
+      );
     }
-
-    console.log("PRODUCTS LOADED:", data);
-
-    setProducts(data || []);
   }
+
+  /* =========================================================
+     RESET FORM
+  ========================================================= */
 
   function resetForm() {
     setEditingId(null);
@@ -83,108 +148,184 @@ export default function AdminProductsPage() {
     setFeatured(false);
   }
 
-  async function addProduct() {
+  /* =========================================================
+     VALIDATE PRODUCT
+  ========================================================= */
+
+  function validateProduct() {
+    const trimmedName = name.trim();
+    const trimmedDescription = description.trim();
+    const trimmedCategory = category.trim();
+
+    const numericPrice = Number(price);
+    const numericStock = Number(stock);
+
+    if (!trimmedName) {
+      alert("Please enter a product name.");
+      return false;
+    }
+
+    if (!trimmedCategory) {
+      alert("Please select a product category.");
+      return false;
+    }
+
     if (
-      !name.trim() ||
-      !description.trim() ||
       !price ||
-      !category.trim() ||
-      !image.trim() ||
-      !stock
+      Number.isNaN(numericPrice) ||
+      numericPrice <= 0
     ) {
-      alert("Please fill all fields.");
+      alert("Please enter a valid price greater than ₹0.");
+      return false;
+    }
+
+    if (
+      stock === "" ||
+      Number.isNaN(numericStock) ||
+      numericStock < 0 ||
+      !Number.isInteger(numericStock)
+    ) {
+      alert(
+        "Stock must be a whole number and cannot be negative."
+      );
+      return false;
+    }
+
+    if (!trimmedDescription) {
+      alert("Please enter a product description.");
+      return false;
+    }
+
+    if (!image.trim()) {
+      alert("Please upload a product image.");
+      return false;
+    }
+
+    return true;
+  }
+
+  /* =========================================================
+     ADD / UPDATE PRODUCT
+  ========================================================= */
+
+  async function addProduct() {
+    if (saving) {
       return;
     }
 
-    const productData = {
-      name: name.trim(),
-      description: description.trim(),
-      price: Number(price),
-      category: category.trim(),
-      image: image.trim(),
-      stock: Number(stock),
-      featured,
-    };
+    if (!validateProduct()) {
+      return;
+    }
 
-    const currentEditingId = editingId;
+    try {
+      setSaving(true);
 
-    // ==========================================
-    // UPDATE EXISTING PRODUCT
-    // ==========================================
-    if (currentEditingId) {
-      console.log("=================================");
-      console.log("UPDATING PRODUCT");
-      console.log("PRODUCT ID:", currentEditingId);
-      console.log("NEW PRODUCT DATA:", productData);
-      console.log("=================================");
+      const token = await getAccessToken();
 
-      const { error } = await supabase
-        .from("products")
-        .update(productData)
-        .eq("id", currentEditingId);
+      const productData = {
+        name: name.trim(),
+        description: description.trim(),
+        price: Number(price),
+        category: category.trim(),
+        image: image.trim(),
+        stock: Number(stock),
+        featured,
+      };
 
-      console.log("UPDATE ERROR:", error);
+      /* =====================================================
+         UPDATE PRODUCT
+      ===================================================== */
 
-      if (error) {
-        console.error("UPDATE PRODUCT ERROR:", error);
-        alert(error.message);
+      if (editingId) {
+        const response = await fetch(
+          "/api/admin/products",
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              id: editingId,
+              ...productData,
+            }),
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(
+            result.message ||
+              "Unable to update product."
+          );
+        }
+
+        await loadProducts();
+
+        resetForm();
+
+        alert("✅ Product Updated Successfully");
+
         return;
       }
 
-      console.log("UPDATE REQUEST COMPLETED SUCCESSFULLY");
+      /* =====================================================
+         ADD PRODUCT
+      ===================================================== */
 
-      // Reload products directly from Supabase
+      const response = await fetch(
+        "/api/admin/products",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(productData),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+            "Unable to add product."
+        );
+      }
+
       await loadProducts();
 
       resetForm();
 
-      alert("✅ Product Updated Successfully");
+      alert("✅ Product Added Successfully");
+    } catch (error: any) {
+      console.error("PRODUCT SAVE ERROR:", error);
 
-      return;
+      alert(
+        error?.message ||
+          "Something went wrong while saving the product."
+      );
+    } finally {
+      setSaving(false);
     }
-
-    // ==========================================
-    // ADD NEW PRODUCT
-    // ==========================================
-    console.log("=================================");
-    console.log("ADDING NEW PRODUCT");
-    console.log("PRODUCT DATA:", productData);
-    console.log("=================================");
-
-    const { error } = await supabase
-      .from("products")
-      .insert([productData]);
-
-    console.log("INSERT ERROR:", error);
-
-    if (error) {
-      console.error("ADD PRODUCT ERROR:", error);
-      alert(error.message);
-      return;
-    }
-
-    await loadProducts();
-
-    resetForm();
-
-    alert("✅ Product Added Successfully");
   }
 
-  function handleEdit(product: Product) {
-    console.log("=================================");
-    console.log("EDIT PRODUCT");
-    console.log(product);
-    console.log("=================================");
+  /* =========================================================
+     EDIT PRODUCT
+  ========================================================= */
 
+  function handleEdit(product: Product) {
     setEditingId(product.id);
 
-    setName(product.name);
-    setDescription(product.description);
-    setPrice(String(product.price));
-    setCategory(product.category);
-    setImage(product.image);
-    setStock(String(product.stock));
-    setFeatured(product.featured);
+    setName(product.name || "");
+    setDescription(product.description || "");
+    setPrice(String(product.price ?? ""));
+    setCategory(product.category || "");
+    setImage(product.image || "");
+    setStock(String(product.stock ?? 0));
+    setFeatured(Boolean(product.featured));
 
     window.scrollTo({
       top: 0,
@@ -192,58 +333,162 @@ export default function AdminProductsPage() {
     });
   }
 
+  /* =========================================================
+     DELETE PRODUCT
+  ========================================================= */
+
   async function handleDelete(id: string) {
-    const confirmDelete = confirm(
+    const confirmDelete = window.confirm(
       "Are you sure you want to delete this product?"
     );
 
-    if (!confirmDelete) return;
-
-    console.log("DELETING PRODUCT:", id);
-
-    const { error } = await supabase
-      .from("products")
-      .delete()
-      .eq("id", id);
-
-    console.log("DELETE ERROR:", error);
-
-    if (error) {
-      alert(error.message);
+    if (!confirmDelete) {
       return;
     }
 
-    setProducts((currentProducts) =>
-      currentProducts.filter((product) => product.id !== id)
-    );
+    try {
+      const token = await getAccessToken();
 
-    await loadProducts();
+      const response = await fetch(
+        "/api/admin/products",
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            id,
+          }),
+        }
+      );
 
-    alert("🗑️ Product Deleted Successfully");
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+            "Unable to delete product."
+        );
+      }
+
+      setProducts((currentProducts) =>
+        currentProducts.filter(
+          (product) => product.id !== id
+        )
+      );
+
+      if (editingId === id) {
+        resetForm();
+      }
+
+      alert("🗑️ Product Deleted Successfully");
+    } catch (error: any) {
+      console.error(
+        "DELETE PRODUCT ERROR:",
+        error
+      );
+
+      alert(
+        error?.message ||
+          "Unable to delete product."
+      );
+    }
   }
+
+  /* =========================================================
+     LOADING
+  ========================================================= */
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
-        <h2 className="text-2xl font-bold">
-          Loading Products...
-        </h2>
+      <main className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
+          <div className="text-4xl mb-4">
+            🔐
+          </div>
+
+          <h2 className="text-2xl font-bold text-gray-900">
+            Verifying Admin Access...
+          </h2>
+
+          <p className="text-gray-500 mt-2">
+            Loading products securely.
+          </p>
+        </div>
       </main>
     );
   }
 
-  return (
-    <main className="min-h-screen bg-gray-100 p-8">
+  /* =========================================================
+     PAGE
+  ========================================================= */
 
+  return (
+    <main className="min-h-screen bg-gray-100 p-6 md:p-8">
       <div className="max-w-7xl mx-auto">
 
-        <h1 className="text-4xl font-bold mb-2">
-          Product Management
-        </h1>
+        {/* ===================================================
+            HEADER
+        =================================================== */}
 
-        <p className="text-gray-600 mb-8">
-          Add, edit and manage your NovaCart products.
-        </p>
+        <div className="bg-white rounded-2xl shadow-lg p-6 md:p-8 mb-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+
+            <div>
+              <div className="flex items-center gap-3">
+
+                <div className="w-14 h-14 rounded-xl bg-blue-600 text-white flex items-center justify-center text-3xl">
+                  📦
+                </div>
+
+                <div>
+                  <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
+                    Product Management
+                  </h1>
+
+                  <p className="text-green-600 font-semibold mt-1">
+                    ✓ Admin Access Verified
+                  </p>
+                </div>
+
+              </div>
+
+              <p className="text-gray-600 mt-4">
+                Securely manage your NovaCart products.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+
+              <button
+                type="button"
+                onClick={() => router.push("/admin")}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-semibold transition"
+              >
+                ← Admin Dashboard
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await supabase.auth.signOut();
+
+                  router.replace("/login");
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold transition"
+              >
+                Logout
+              </button>
+
+            </div>
+
+          </div>
+        </div>
+
+        {/* ===================================================
+            PRODUCT FORM
+        =================================================== */}
 
         <ProductForm
           name={name}
@@ -270,18 +515,46 @@ export default function AdminProductsPage() {
           onCancel={resetForm}
         />
 
-        <div className="mt-10">
+        {/* ===================================================
+            PRODUCTS TABLE
+        =================================================== */}
 
+        <div className="mt-10">
           <ProductTable
             products={products}
             onEdit={handleEdit}
             onDelete={handleDelete}
           />
+        </div>
 
+        {/* ===================================================
+            SECURITY NOTICE
+        =================================================== */}
+
+        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-2xl p-5">
+          <div className="flex gap-3">
+
+            <span className="text-xl">
+              🔒
+            </span>
+
+            <div>
+              <h3 className="font-bold text-blue-900">
+                Product Security Active
+              </h3>
+
+              <p className="text-sm text-blue-800 mt-1">
+                Product management requests are
+                verified server-side. Only the
+                authorized NovaCart admin account
+                can add, edit or delete products.
+              </p>
+            </div>
+
+          </div>
         </div>
 
       </div>
-
     </main>
   );
 }

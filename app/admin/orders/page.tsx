@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 
+const ADMIN_EMAIL = "j.ptravels2297@gmail.com";
+
 type Order = {
   id: number | string;
   customer_name: string;
@@ -16,8 +18,8 @@ type Order = {
   payment_method: string;
   total: number;
   products: any;
-  payment_status: string;
-  status: string;
+  payment_status?: string | null;
+  status?: string | null;
   razorpay_payment_id?: string | null;
   razorpay_order_id?: string | null;
   created_at?: string;
@@ -28,131 +30,203 @@ export default function AdminOrdersPage() {
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState<string | number | null>(null);
   const [email, setEmail] = useState("");
 
   useEffect(() => {
-    checkUser();
+    checkAdmin();
   }, []);
 
-  async function checkUser() {
+  async function checkAdmin() {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.replace("/login");
+        return;
+      }
+
+      const userEmail = session.user.email?.toLowerCase() || "";
+
+      if (userEmail !== ADMIN_EMAIL.toLowerCase()) {
+        alert("⛔ Access denied. Admin only.");
+
+        await supabase.auth.signOut();
+
+        router.replace("/login");
+        return;
+      }
+
+      setEmail(session.user.email || "");
+
+      await loadOrders();
+
+      setLoading(false);
+    } catch (error) {
+      console.error("ADMIN AUTH ERROR:", error);
+
+      alert("Unable to verify admin access.");
+
+      router.replace("/login");
+    }
+  }
+
+  async function getAccessToken() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
-    if (!session) {
-      router.replace("/login");
-      return;
+    if (!session?.access_token) {
+      throw new Error("Your session has expired. Please login again.");
     }
 
-    setEmail(session.user.email || "");
-
-    await loadOrders();
-
-    setLoading(false);
+    return session.access_token;
   }
 
   async function loadOrders() {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*")
-      .order("created_at", {
-        ascending: false,
+    try {
+      const token = await getAccessToken();
+
+      const response = await fetch("/api/admin/orders", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
       });
 
-    if (error) {
-      console.error("ADMIN ORDERS ERROR:", error);
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || "Unable to load orders."
+        );
+      }
+
+      setOrders((result.orders || []) as Order[]);
+    } catch (error: any) {
+      console.error("ADMIN ORDERS LOAD ERROR:", error);
 
       alert(
-        "Unable to load orders: " + error.message
+        error?.message ||
+          "Unable to load orders."
       );
-
-      return;
     }
-
-    setOrders((data || []) as Order[]);
   }
 
-  async function updatePaymentStatus(
+  async function updateOrder(
     id: number | string,
-    status: string
+    changes: {
+      payment_status?: string;
+      status?: string;
+    }
   ) {
-    const { error } = await supabase
-      .from("orders")
-      .update({
-        payment_status: status,
-      })
-      .eq("id", id);
+    try {
+      setUpdating(id);
 
-    if (error) {
-      console.error(
-        "PAYMENT STATUS UPDATE ERROR:",
-        error
+      const token = await getAccessToken();
+
+      const response = await fetch("/api/admin/orders", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id,
+          ...changes,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+            "Unable to update order."
+        );
+      }
+
+      setOrders((currentOrders) =>
+        currentOrders.map((order) =>
+          String(order.id) === String(id)
+            ? {
+                ...order,
+                ...changes,
+              }
+            : order
+        )
       );
+
+      alert("✅ Order updated successfully.");
+    } catch (error: any) {
+      console.error("ORDER UPDATE ERROR:", error);
 
       alert(
-        "Unable to update payment status: " +
-          error.message
+        error?.message ||
+          "Unable to update order."
       );
 
-      return;
+      await loadOrders();
+    } finally {
+      setUpdating(null);
     }
-
-    await loadOrders();
-
-    alert("Payment status updated successfully.");
-  }
-
-  async function updateOrderStatus(
-    id: number | string,
-    status: string
-  ) {
-    const { error } = await supabase
-      .from("orders")
-      .update({
-        status: status,
-      })
-      .eq("id", id);
-
-    if (error) {
-      console.error(
-        "ORDER STATUS UPDATE ERROR:",
-        error
-      );
-
-      alert(
-        "Unable to update order status: " +
-          error.message
-      );
-
-      return;
-    }
-
-    await loadOrders();
-
-    alert("Order status updated successfully.");
   }
 
   async function logout() {
     await supabase.auth.signOut();
 
-    router.push("/login");
+    alert("Logged out successfully.");
+
+    router.replace("/login");
   }
 
   function formatDate(date?: string) {
     if (!date) return "N/A";
 
-    return new Date(date).toLocaleString("en-IN", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
+    return new Date(date).toLocaleString(
+      "en-IN",
+      {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }
+    );
   }
+
+  const paidOrders = orders.filter(
+    (order) =>
+      order.payment_status === "Paid"
+  );
+
+  const pendingPayments = orders.filter(
+    (order) =>
+      order.payment_status !== "Paid"
+  );
+
+  const totalRevenue = paidOrders.reduce(
+    (sum, order) =>
+      sum + Number(order.total || 0),
+    0
+  );
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-gray-100">
-        <h2 className="text-2xl font-bold">
-          Loading Orders...
-        </h2>
+      <main className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
+          <div className="text-4xl mb-4">
+            🔐
+          </div>
+
+          <h2 className="text-2xl font-bold text-gray-900">
+            Verifying Admin Access...
+          </h2>
+
+          <p className="text-gray-500 mt-2">
+            Loading secure orders...
+          </p>
+        </div>
       </main>
     );
   }
@@ -162,16 +236,34 @@ export default function AdminOrdersPage() {
       <div className="max-w-7xl mx-auto">
 
         {/* HEADER */}
-        <div className="bg-white rounded-2xl shadow p-6 mb-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
 
             <div>
-              <h1 className="text-3xl font-bold">
-                NovaCart Orders
-              </h1>
+              <div className="flex items-center gap-3">
 
-              <p className="text-gray-600 mt-2">
-                Admin: {email}
+                <div className="w-12 h-12 rounded-xl bg-green-600 text-white flex items-center justify-center text-2xl">
+                  🛒
+                </div>
+
+                <div>
+                  <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
+                    NovaCart Orders
+                  </h1>
+
+                  <p className="text-green-600 font-semibold mt-1">
+                    ✓ Admin Access Verified
+                  </p>
+                </div>
+
+              </div>
+
+              <p className="text-gray-600 mt-4">
+                Logged in as{" "}
+                <strong className="text-gray-900">
+                  {email}
+                </strong>
               </p>
             </div>
 
@@ -179,26 +271,27 @@ export default function AdminOrdersPage() {
 
               <Link
                 href="/admin"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-semibold"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-semibold transition"
               >
                 ← Admin Dashboard
               </Link>
 
               <button
                 onClick={logout}
-                className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold"
+                className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold transition"
               >
                 Logout
               </button>
 
             </div>
+
           </div>
         </div>
 
         {/* SUMMARY */}
+
         <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-5 mb-6">
 
-          {/* TOTAL ORDERS */}
           <div className="bg-white rounded-2xl shadow p-6">
             <p className="text-gray-500">
               Total Orders
@@ -209,39 +302,26 @@ export default function AdminOrdersPage() {
             </p>
           </div>
 
-          {/* PAID ORDERS */}
           <div className="bg-white rounded-2xl shadow p-6">
             <p className="text-gray-500">
               Paid Orders
             </p>
 
             <p className="text-3xl font-bold text-green-600 mt-2">
-              {
-                orders.filter(
-                  (order) =>
-                    order.payment_status === "Paid"
-                ).length
-              }
+              {paidOrders.length}
             </p>
           </div>
 
-          {/* PENDING PAYMENTS */}
           <div className="bg-white rounded-2xl shadow p-6">
             <p className="text-gray-500">
               Pending Payments
             </p>
 
             <p className="text-3xl font-bold text-orange-500 mt-2">
-              {
-                orders.filter(
-                  (order) =>
-                    order.payment_status !== "Paid"
-                ).length
-              }
+              {pendingPayments.length}
             </p>
           </div>
 
-          {/* REVENUE */}
           <div className="bg-white rounded-2xl shadow p-6">
             <p className="text-gray-500">
               Total Revenue
@@ -249,25 +329,23 @@ export default function AdminOrdersPage() {
 
             <p className="text-3xl font-bold text-blue-600 mt-2">
               ₹
-              {orders
-                .filter(
-                  (order) =>
-                    order.payment_status === "Paid"
-                )
-                .reduce(
-                  (sum, order) =>
-                    sum + Number(order.total || 0),
-                  0
-                )
-                .toLocaleString("en-IN")}
+              {totalRevenue.toLocaleString(
+                "en-IN"
+              )}
             </p>
           </div>
+
         </div>
 
         {/* ORDERS */}
+
         {orders.length === 0 ? (
 
           <div className="bg-white rounded-2xl shadow p-10 text-center">
+
+            <div className="text-5xl mb-4">
+              📦
+            </div>
 
             <h2 className="text-2xl font-bold">
               No Orders Yet
@@ -287,13 +365,13 @@ export default function AdminOrdersPage() {
 
               <div
                 key={order.id}
-                className="bg-white rounded-2xl shadow p-6"
+                className="bg-white rounded-2xl shadow-lg p-6"
               >
 
                 {/* ORDER HEADER */}
+
                 <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5 border-b pb-5">
 
-                  {/* ORDER ID */}
                   <div>
                     <p className="text-sm text-gray-500">
                       Order ID
@@ -304,11 +382,12 @@ export default function AdminOrdersPage() {
                     </p>
 
                     <p className="text-sm text-gray-500 mt-1">
-                      {formatDate(order.created_at)}
+                      {formatDate(
+                        order.created_at
+                      )}
                     </p>
                   </div>
 
-                  {/* PAYMENT METHOD */}
                   <div>
                     <p className="text-sm text-gray-500">
                       Payment Method
@@ -319,7 +398,6 @@ export default function AdminOrdersPage() {
                     </p>
                   </div>
 
-                  {/* TOTAL */}
                   <div>
                     <p className="text-sm text-gray-500">
                       Total
@@ -329,11 +407,14 @@ export default function AdminOrdersPage() {
                       ₹
                       {Number(
                         order.total || 0
-                      ).toLocaleString("en-IN")}
+                      ).toLocaleString(
+                        "en-IN"
+                      )}
                     </p>
                   </div>
 
                   {/* PAYMENT STATUS */}
+
                   <div>
                     <p className="text-sm text-gray-500 mb-1">
                       Payment Status
@@ -344,13 +425,19 @@ export default function AdminOrdersPage() {
                         order.payment_status ||
                         "Pending"
                       }
+                      disabled={
+                        updating === order.id
+                      }
                       onChange={(e) =>
-                        updatePaymentStatus(
+                        updateOrder(
                           order.id,
-                          e.target.value
+                          {
+                            payment_status:
+                              e.target.value,
+                          }
                         )
                       }
-                      className="border rounded-xl px-3 py-2 font-semibold"
+                      className="border rounded-xl px-3 py-2 font-semibold bg-white disabled:opacity-50"
                     >
                       <option value="Pending">
                         Pending
@@ -367,6 +454,7 @@ export default function AdminOrdersPage() {
                   </div>
 
                   {/* ORDER STATUS */}
+
                   <div>
                     <p className="text-sm text-gray-500 mb-1">
                       Order Status
@@ -377,13 +465,19 @@ export default function AdminOrdersPage() {
                         order.status ||
                         "Pending"
                       }
+                      disabled={
+                        updating === order.id
+                      }
                       onChange={(e) =>
-                        updateOrderStatus(
+                        updateOrder(
                           order.id,
-                          e.target.value
+                          {
+                            status:
+                              e.target.value,
+                          }
                         )
                       }
-                      className="border rounded-xl px-3 py-2 font-semibold"
+                      className="border rounded-xl px-3 py-2 font-semibold bg-white disabled:opacity-50"
                     >
                       <option value="Pending">
                         Pending
@@ -410,6 +504,7 @@ export default function AdminOrdersPage() {
                 </div>
 
                 {/* CUSTOMER */}
+
                 <div className="grid md:grid-cols-2 gap-6 mt-6">
 
                   <div>
@@ -451,6 +546,7 @@ export default function AdminOrdersPage() {
                 </div>
 
                 {/* RAZORPAY DETAILS */}
+
                 {order.payment_method ===
                   "Razorpay" && (
 
@@ -461,13 +557,17 @@ export default function AdminOrdersPage() {
                     </h3>
 
                     <p className="text-sm break-all">
-                      <strong>Payment ID:</strong>{" "}
+                      <strong>
+                        Payment ID:
+                      </strong>{" "}
                       {order.razorpay_payment_id ||
                         "Not available"}
                     </p>
 
                     <p className="text-sm break-all mt-1">
-                      <strong>Razorpay Order ID:</strong>{" "}
+                      <strong>
+                        Razorpay Order ID:
+                      </strong>{" "}
                       {order.razorpay_order_id ||
                         "Not available"}
                     </p>
@@ -476,6 +576,7 @@ export default function AdminOrdersPage() {
                 )}
 
                 {/* PRODUCTS */}
+
                 <div className="mt-6">
 
                   <h3 className="text-xl font-bold mb-3">
@@ -495,7 +596,7 @@ export default function AdminOrdersPage() {
                         ) => (
 
                           <div
-                            key={index}
+                            key={`${order.id}-${index}`}
                             className="flex justify-between gap-4 border-b py-3"
                           >
 
@@ -508,7 +609,9 @@ export default function AdminOrdersPage() {
                               {product.quantity && (
                                 <p className="text-sm text-gray-500">
                                   Quantity:{" "}
-                                  {product.quantity}
+                                  {
+                                    product.quantity
+                                  }
                                 </p>
                               )}
                             </div>
@@ -516,7 +619,8 @@ export default function AdminOrdersPage() {
                             <span className="font-semibold whitespace-nowrap">
                               ₹
                               {Number(
-                                product.price || 0
+                                product.price ||
+                                  0
                               ).toLocaleString(
                                 "en-IN"
                               )}
@@ -536,6 +640,7 @@ export default function AdminOrdersPage() {
                     )}
 
                   </div>
+
                 </div>
 
               </div>
@@ -545,6 +650,35 @@ export default function AdminOrdersPage() {
           </div>
 
         )}
+
+        {/* SECURITY NOTICE */}
+
+        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-2xl p-5">
+
+          <div className="flex gap-3">
+
+            <span className="text-xl">
+              🔒
+            </span>
+
+            <div>
+
+              <h3 className="font-bold text-blue-900">
+                Secure Admin Orders
+              </h3>
+
+              <p className="text-sm text-blue-800 mt-1">
+                Orders are loaded and updated through
+                a protected server API. Only the
+                authorized NovaCart admin account can
+                access and manage customer orders.
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
 
       </div>
     </main>
