@@ -62,9 +62,12 @@ if (data) {
             Home
           </button>
 
-          <button className="hover:text-blue-600 transition">
-            Categories
-          </button>
+<Link
+  href="/categories"
+  className="hover:text-blue-600 transition"
+>
+  Categories
+</Link>
 
           <Link
             href="/cart"
