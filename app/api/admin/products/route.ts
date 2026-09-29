@@ -1,64 +1,16 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
-
-const ADMIN_EMAIL = "j.ptravels2297@gmail.com";
-
-function getToken(req: Request) {
-  const authorization = req.headers.get("authorization");
-
-  if (!authorization?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  return authorization.replace("Bearer ", "").trim();
-}
-
-async function verifyAdmin(req: Request) {
-  const token = getToken(req);
-
-  if (!token) {
-    return {
-      success: false,
-      message: "Unauthorized.",
-    };
-  }
-
-  const {
-    data: { user },
-    error,
-  } = await supabaseAdmin.auth.getUser(token);
-
-  if (error || !user) {
-    return {
-      success: false,
-      message: "Invalid or expired session.",
-    };
-  }
-
-  const userEmail = user.email?.toLowerCase() || "";
-
-  if (userEmail !== ADMIN_EMAIL.toLowerCase()) {
-    return {
-      success: false,
-      message: "Admin access denied.",
-    };
-  }
-
-  return {
-    success: true,
-    user,
-  };
-}
+import { getAdminUser } from "../../../lib/adminAuth";
 
 export async function GET(req: Request) {
   try {
-    const admin = await verifyAdmin(req);
+    const admin = await getAdminUser(req);
 
-    if (!admin.success) {
+    if (!admin) {
       return NextResponse.json(
         {
           success: false,
-          message: admin.message,
+          message: "Admin access denied.",
         },
         { status: 403 }
       );
@@ -102,13 +54,13 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const admin = await verifyAdmin(req);
+    const admin = await getAdminUser(req);
 
-    if (!admin.success) {
+    if (!admin) {
       return NextResponse.json(
         {
           success: false,
-          message: admin.message,
+          message: "Admin access denied.",
         },
         { status: 403 }
       );
@@ -220,13 +172,13 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const admin = await verifyAdmin(req);
+    const admin = await getAdminUser(req);
 
-    if (!admin.success) {
+    if (!admin) {
       return NextResponse.json(
         {
           success: false,
-          message: admin.message,
+          message: "Admin access denied.",
         },
         { status: 403 }
       );
@@ -348,13 +300,13 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const admin = await verifyAdmin(req);
+    const admin = await getAdminUser(req);
 
-    if (!admin.success) {
+    if (!admin) {
       return NextResponse.json(
         {
           success: false,
-          message: admin.message,
+          message: "Admin access denied.",
         },
         { status: 403 }
       );

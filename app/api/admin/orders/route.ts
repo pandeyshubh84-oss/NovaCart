@@ -1,64 +1,16 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
-
-const ADMIN_EMAIL = "j.ptravels2297@gmail.com";
-
-function getToken(req: Request) {
-  const authorization = req.headers.get("authorization");
-
-  if (!authorization?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  return authorization.replace("Bearer ", "").trim();
-}
-
-async function verifyAdmin(req: Request) {
-  const token = getToken(req);
-
-  if (!token) {
-    return {
-      success: false,
-      message: "Unauthorized.",
-    };
-  }
-
-  const {
-    data: { user },
-    error,
-  } = await supabaseAdmin.auth.getUser(token);
-
-  if (error || !user) {
-    return {
-      success: false,
-      message: "Invalid or expired session.",
-    };
-  }
-
-  const userEmail = user.email?.toLowerCase() || "";
-
-  if (userEmail !== ADMIN_EMAIL.toLowerCase()) {
-    return {
-      success: false,
-      message: "Admin access denied.",
-    };
-  }
-
-  return {
-    success: true,
-    user,
-  };
-}
+import { getAdminUser } from "../../../lib/adminAuth";
 
 export async function GET(req: Request) {
   try {
-    const admin = await verifyAdmin(req);
+    const admin = await getAdminUser(req);
 
-    if (!admin.success) {
+    if (!admin) {
       return NextResponse.json(
         {
           success: false,
-          message: admin.message,
+          message: "Admin access denied.",
         },
         { status: 403 }
       );
@@ -102,13 +54,13 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const admin = await verifyAdmin(req);
+    const admin = await getAdminUser(req);
 
-    if (!admin.success) {
+    if (!admin) {
       return NextResponse.json(
         {
           success: false,
-          message: admin.message,
+          message: "Admin access denied.",
         },
         { status: 403 }
       );
@@ -141,7 +93,11 @@ export async function PATCH(req: Request) {
         "Failed",
       ];
 
-      if (!allowedPaymentStatuses.includes(payment_status)) {
+      if (
+        !allowedPaymentStatuses.includes(
+          payment_status
+        )
+      ) {
         return NextResponse.json(
           {
             success: false,
@@ -151,7 +107,8 @@ export async function PATCH(req: Request) {
         );
       }
 
-      updateData.payment_status = payment_status;
+      updateData.payment_status =
+        payment_status;
     }
 
     if (status !== undefined) {
@@ -163,7 +120,9 @@ export async function PATCH(req: Request) {
         "Cancelled",
       ];
 
-      if (!allowedOrderStatuses.includes(status)) {
+      if (
+        !allowedOrderStatuses.includes(status)
+      ) {
         return NextResponse.json(
           {
             success: false,
@@ -176,7 +135,9 @@ export async function PATCH(req: Request) {
       updateData.status = status;
     }
 
-    if (Object.keys(updateData).length === 0) {
+    if (
+      Object.keys(updateData).length === 0
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -186,15 +147,19 @@ export async function PATCH(req: Request) {
       );
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("orders")
-      .update(updateData)
-      .eq("id", id)
-      .select()
-      .single();
+    const { data, error } =
+      await supabaseAdmin
+        .from("orders")
+        .update(updateData)
+        .eq("id", id)
+        .select()
+        .single();
 
     if (error) {
-      console.error("ADMIN ORDER UPDATE ERROR:", error);
+      console.error(
+        "ADMIN ORDER UPDATE ERROR:",
+        error
+      );
 
       return NextResponse.json(
         {
@@ -211,7 +176,10 @@ export async function PATCH(req: Request) {
       order: data,
     });
   } catch (error) {
-    console.error("ADMIN ORDERS PATCH ERROR:", error);
+    console.error(
+      "ADMIN ORDERS PATCH ERROR:",
+      error
+    );
 
     return NextResponse.json(
       {

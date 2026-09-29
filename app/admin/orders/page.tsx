@@ -1,11 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 
-const ADMIN_EMAIL = "j.ptravels2297@gmail.com";
+const ADMIN_EMAIL = "pandeyshubh84@gmail.com";
+
+type ProductInfo = {
+  id: string;
+  name: string;
+  price: number;
+  image?: string | null;
+};
+
+type OrderProduct = {
+  id?: string;
+  name?: string;
+  price?: number;
+  image?: string;
+  quantity?: number;
+};
 
 type Order = {
   id: number | string;
@@ -17,7 +32,7 @@ type Order = {
   pincode: string;
   payment_method: string;
   total: number;
-  products: any;
+  products: OrderProduct[];
   payment_status?: string | null;
   status?: string | null;
   razorpay_payment_id?: string | null;
@@ -25,13 +40,41 @@ type Order = {
   created_at?: string;
 };
 
+const ORDER_STATUSES = [
+  "Pending",
+  "Processing",
+  "Shipped",
+  "Delivered",
+  "Cancelled",
+];
+
+const PAYMENT_STATUSES = [
+  "Pending",
+  "Paid",
+  "Failed",
+];
+
 export default function AdminOrdersPage() {
   const router = useRouter();
 
   const [orders, setOrders] = useState<Order[]>([]);
+  const [productMap, setProductMap] = useState<
+    Record<string, ProductInfo>
+  >({});
+
   const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState<string | number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [updating, setUpdating] = useState<
+    string | number | null
+  >(null);
+
   const [email, setEmail] = useState("");
+
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [paymentFilter, setPaymentFilter] =
+    useState("All");
 
   useEffect(() => {
     checkAdmin();
@@ -48,9 +91,12 @@ export default function AdminOrdersPage() {
         return;
       }
 
-      const userEmail = session.user.email?.toLowerCase() || "";
+      const userEmail =
+        session.user.email?.toLowerCase().trim() || "";
 
-      if (userEmail !== ADMIN_EMAIL.toLowerCase()) {
+      if (
+        userEmail !== ADMIN_EMAIL.toLowerCase()
+      ) {
         alert("⛔ Access denied. Admin only.");
 
         await supabase.auth.signOut();
@@ -65,9 +111,14 @@ export default function AdminOrdersPage() {
 
       setLoading(false);
     } catch (error) {
-      console.error("ADMIN AUTH ERROR:", error);
+      console.error(
+        "ADMIN AUTH ERROR:",
+        error
+      );
 
-      alert("Unable to verify admin access.");
+      alert(
+        "Unable to verify admin access."
+      );
 
       router.replace("/login");
     }
@@ -79,39 +130,145 @@ export default function AdminOrdersPage() {
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      throw new Error("Your session has expired. Please login again.");
+      throw new Error(
+        "Your session has expired. Please login again."
+      );
     }
 
     return session.access_token;
   }
 
-  async function loadOrders() {
+  async function loadOrders(
+    showRefreshLoader = false
+  ) {
     try {
+      if (showRefreshLoader) {
+        setRefreshing(true);
+      }
+
       const token = await getAccessToken();
 
-      const response = await fetch("/api/admin/orders", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        cache: "no-store",
-      });
+      const response = await fetch(
+        "/api/admin/orders",
+        {
+          method: "GET",
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+          },
+          cache: "no-store",
+        }
+      );
 
-      const result = await response.json();
+      const result =
+        await response.json();
 
-      if (!response.ok || !result.success) {
+      if (
+        !response.ok ||
+        !result.success
+      ) {
         throw new Error(
-          result.message || "Unable to load orders."
+          result.message ||
+            "Unable to load orders."
         );
       }
 
-      setOrders((result.orders || []) as Order[]);
+      const loadedOrders =
+        (result.orders || []) as Order[];
+
+      setOrders(loadedOrders);
+
+      await loadProductDetails(
+        loadedOrders
+      );
     } catch (error: any) {
-      console.error("ADMIN ORDERS LOAD ERROR:", error);
+      console.error(
+        "ADMIN ORDERS LOAD ERROR:",
+        error
+      );
 
       alert(
         error?.message ||
           "Unable to load orders."
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function loadProductDetails(
+    loadedOrders: Order[]
+  ) {
+    try {
+      const productIds =
+        new Set<string>();
+
+      for (const order of loadedOrders) {
+        if (
+          !Array.isArray(order.products)
+        ) {
+          continue;
+        }
+
+        for (const product of order.products) {
+          if (product?.id) {
+            productIds.add(
+              String(product.id)
+            );
+          }
+        }
+      }
+
+      if (productIds.size === 0) {
+        setProductMap({});
+        return;
+      }
+
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("products")
+        .select(
+          "id, name, price, image"
+        )
+        .in(
+          "id",
+          Array.from(productIds)
+        );
+
+      if (error) {
+        console.error(
+          "PRODUCT DETAILS ERROR:",
+          error
+        );
+
+        return;
+      }
+
+      const map: Record<
+        string,
+        ProductInfo
+      > = {};
+
+      for (const product of data || []) {
+        map[String(product.id)] = {
+          id: String(product.id),
+          name:
+            product.name ||
+            "Product",
+          price:
+            Number(product.price) || 0,
+          image:
+            product.image || null,
+        };
+      }
+
+      setProductMap(map);
+    } catch (error) {
+      console.error(
+        "PRODUCT LOOKUP ERROR:",
+        error
       );
     }
   }
@@ -126,43 +283,61 @@ export default function AdminOrdersPage() {
     try {
       setUpdating(id);
 
-      const token = await getAccessToken();
+      const token =
+        await getAccessToken();
 
-      const response = await fetch("/api/admin/orders", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          id,
-          ...changes,
-        }),
-      });
+      const response = await fetch(
+        "/api/admin/orders",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization:
+              `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            id,
+            ...changes,
+          }),
+        }
+      );
 
-      const result = await response.json();
+      const result =
+        await response.json();
 
-      if (!response.ok || !result.success) {
+      if (
+        !response.ok ||
+        !result.success
+      ) {
         throw new Error(
           result.message ||
             "Unable to update order."
         );
       }
 
-      setOrders((currentOrders) =>
-        currentOrders.map((order) =>
-          String(order.id) === String(id)
-            ? {
-                ...order,
-                ...changes,
-              }
-            : order
-        )
+      setOrders(
+        (currentOrders) =>
+          currentOrders.map(
+            (order) =>
+              String(order.id) ===
+              String(id)
+                ? {
+                    ...order,
+                    ...changes,
+                  }
+                : order
+          )
       );
 
-      alert("✅ Order updated successfully.");
+      alert(
+        "✅ Order updated successfully."
+      );
     } catch (error: any) {
-      console.error("ORDER UPDATE ERROR:", error);
+      console.error(
+        "ORDER UPDATE ERROR:",
+        error
+      );
 
       alert(
         error?.message ||
@@ -178,15 +353,23 @@ export default function AdminOrdersPage() {
   async function logout() {
     await supabase.auth.signOut();
 
-    alert("Logged out successfully.");
+    alert(
+      "Logged out successfully."
+    );
 
     router.replace("/login");
   }
 
-  function formatDate(date?: string) {
-    if (!date) return "N/A";
+  function formatDate(
+    date?: string
+  ) {
+    if (!date) {
+      return "N/A";
+    }
 
-    return new Date(date).toLocaleString(
+    return new Date(
+      date
+    ).toLocaleString(
       "en-IN",
       {
         dateStyle: "medium",
@@ -195,21 +378,187 @@ export default function AdminOrdersPage() {
     );
   }
 
-  const paidOrders = orders.filter(
-    (order) =>
-      order.payment_status === "Paid"
-  );
+  function getProductDetails(
+    product: OrderProduct
+  ) {
+    const databaseProduct =
+      product.id
+        ? productMap[
+            String(product.id)
+          ]
+        : undefined;
 
-  const pendingPayments = orders.filter(
-    (order) =>
-      order.payment_status !== "Paid"
-  );
+    return {
+      name:
+        databaseProduct?.name ||
+        product.name ||
+        "Product",
 
-  const totalRevenue = paidOrders.reduce(
-    (sum, order) =>
-      sum + Number(order.total || 0),
-    0
-  );
+      price:
+        databaseProduct?.price ??
+        Number(product.price || 0),
+
+      image:
+        databaseProduct?.image ||
+        product.image ||
+        null,
+
+      quantity:
+        Number(product.quantity || 1),
+    };
+  }
+
+  function getStatusClass(
+    status?: string | null
+  ) {
+    switch (status) {
+      case "Pending":
+        return "bg-yellow-100 text-yellow-800 border-yellow-200";
+
+      case "Processing":
+        return "bg-blue-100 text-blue-800 border-blue-200";
+
+      case "Shipped":
+        return "bg-purple-100 text-purple-800 border-purple-200";
+
+      case "Delivered":
+        return "bg-green-100 text-green-800 border-green-200";
+
+      case "Cancelled":
+        return "bg-red-100 text-red-800 border-red-200";
+
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200";
+    }
+  }
+
+  function getPaymentClass(
+    status?: string | null
+  ) {
+    switch (status) {
+      case "Paid":
+        return "bg-green-100 text-green-800 border-green-200";
+
+      case "Failed":
+        return "bg-red-100 text-red-800 border-red-200";
+
+      case "Pending":
+      default:
+        return "bg-yellow-100 text-yellow-800 border-yellow-200";
+    }
+  }
+
+  const filteredOrders = useMemo(() => {
+    const query =
+      search.trim().toLowerCase();
+
+    return orders.filter(
+      (order) => {
+        const matchesSearch =
+          !query ||
+          String(order.id)
+            .toLowerCase()
+            .includes(query) ||
+          order.customer_name
+            ?.toLowerCase()
+            .includes(query) ||
+          order.phone
+            ?.toLowerCase()
+            .includes(query) ||
+          order.email
+            ?.toLowerCase()
+            .includes(query) ||
+          order.city
+            ?.toLowerCase()
+            .includes(query);
+
+        const matchesStatus =
+          statusFilter === "All" ||
+          order.status === statusFilter;
+
+        const matchesPayment =
+          paymentFilter === "All" ||
+          order.payment_status ===
+            paymentFilter;
+
+        return (
+          matchesSearch &&
+          matchesStatus &&
+          matchesPayment
+        );
+      }
+    );
+  }, [
+    orders,
+    search,
+    statusFilter,
+    paymentFilter,
+  ]);
+
+  /*
+   * Revenue:
+   *
+   * Only orders with Payment Status = Paid
+   * AND Order Status != Cancelled
+   * are counted as revenue.
+   */
+  const paidOrders =
+    orders.filter(
+      (order) =>
+        order.payment_status ===
+          "Paid" &&
+        order.status !==
+          "Cancelled"
+    );
+
+  const pendingPayments =
+    orders.filter(
+      (order) =>
+        order.payment_status !==
+        "Paid"
+    );
+
+  const cancelledOrders =
+    orders.filter(
+      (order) =>
+        order.status ===
+        "Cancelled"
+    );
+
+  const deliveredOrders =
+    orders.filter(
+      (order) =>
+        order.status ===
+        "Delivered"
+    );
+
+  const totalRevenue =
+    paidOrders.reduce(
+      (sum, order) =>
+        sum +
+        Number(
+          order.total || 0
+        ),
+      0
+    );
+
+  const filteredRevenue =
+    filteredOrders
+      .filter(
+        (order) =>
+          order.payment_status ===
+            "Paid" &&
+          order.status !==
+            "Cancelled"
+      )
+      .reduce(
+        (sum, order) =>
+          sum +
+          Number(
+            order.total || 0
+          ),
+        0
+      );
 
   if (loading) {
     return (
@@ -236,9 +585,8 @@ export default function AdminOrdersPage() {
       <div className="max-w-7xl mx-auto">
 
         {/* HEADER */}
-
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
 
             <div>
               <div className="flex items-center gap-3">
@@ -269,6 +617,18 @@ export default function AdminOrdersPage() {
 
             <div className="flex flex-wrap gap-3">
 
+              <button
+                onClick={() =>
+                  loadOrders(true)
+                }
+                disabled={refreshing}
+                className="bg-gray-900 hover:bg-black disabled:opacity-50 text-white px-5 py-3 rounded-xl font-semibold transition"
+              >
+                {refreshing
+                  ? "Refreshing..."
+                  : "🔄 Refresh"}
+              </button>
+
               <Link
                 href="/admin"
                 className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-semibold transition"
@@ -289,21 +649,20 @@ export default function AdminOrdersPage() {
         </div>
 
         {/* SUMMARY */}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
 
-        <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-5 mb-6">
-
-          <div className="bg-white rounded-2xl shadow p-6">
-            <p className="text-gray-500">
+          <div className="bg-white rounded-2xl shadow p-5">
+            <p className="text-gray-500 text-sm">
               Total Orders
             </p>
 
-            <p className="text-3xl font-bold mt-2">
+            <p className="text-3xl font-bold text-gray-900 mt-2">
               {orders.length}
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow p-6">
-            <p className="text-gray-500">
+          <div className="bg-white rounded-2xl shadow p-5">
+            <p className="text-gray-500 text-sm">
               Paid Orders
             </p>
 
@@ -312,8 +671,8 @@ export default function AdminOrdersPage() {
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow p-6">
-            <p className="text-gray-500">
+          <div className="bg-white rounded-2xl shadow p-5">
+            <p className="text-gray-500 text-sm">
               Pending Payments
             </p>
 
@@ -322,12 +681,22 @@ export default function AdminOrdersPage() {
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow p-6">
-            <p className="text-gray-500">
-              Total Revenue
+          <div className="bg-white rounded-2xl shadow p-5">
+            <p className="text-gray-500 text-sm">
+              Cancelled
             </p>
 
-            <p className="text-3xl font-bold text-blue-600 mt-2">
+            <p className="text-3xl font-bold text-red-600 mt-2">
+              {cancelledOrders.length}
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow p-5">
+            <p className="text-gray-500 text-sm">
+              Paid Revenue
+            </p>
+
+            <p className="text-2xl font-bold text-blue-600 mt-2">
               ₹
               {totalRevenue.toLocaleString(
                 "en-IN"
@@ -337,23 +706,156 @@ export default function AdminOrdersPage() {
 
         </div>
 
-        {/* ORDERS */}
+        {/* SEARCH + FILTERS */}
+        <div className="bg-white rounded-2xl shadow-lg p-5 mb-6">
 
-        {orders.length === 0 ? (
+          <div className="flex flex-col lg:flex-row gap-4">
+
+            <div className="flex-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Search Orders
+              </label>
+
+              <input
+                type="text"
+                value={search}
+                onChange={(e) =>
+                  setSearch(
+                    e.target.value
+                  )
+                }
+                placeholder="Search by Order ID, customer, phone, email or city..."
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="lg:w-56">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Order Status
+              </label>
+
+              <select
+                value={statusFilter}
+                onChange={(e) =>
+                  setStatusFilter(
+                    e.target.value
+                  )
+                }
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-white"
+              >
+                <option value="All">
+                  All Statuses
+                </option>
+
+                {ORDER_STATUSES.map(
+                  (status) => (
+                    <option
+                      key={status}
+                      value={status}
+                    >
+                      {status}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+            <div className="lg:w-56">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Payment Status
+              </label>
+
+              <select
+                value={paymentFilter}
+                onChange={(e) =>
+                  setPaymentFilter(
+                    e.target.value
+                  )
+                }
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-white"
+              >
+                <option value="All">
+                  All Payments
+                </option>
+
+                {PAYMENT_STATUSES.map(
+                  (status) => (
+                    <option
+                      key={status}
+                      value={status}
+                    >
+                      {status}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4">
+
+            <p className="text-sm text-gray-600">
+              Showing{" "}
+              <strong>
+                {filteredOrders.length}
+              </strong>{" "}
+              of{" "}
+              <strong>
+                {orders.length}
+              </strong>{" "}
+              orders
+            </p>
+
+            <p className="text-sm text-gray-600">
+              Filtered Paid Revenue:{" "}
+              <strong className="text-blue-600">
+                ₹
+                {filteredRevenue.toLocaleString(
+                  "en-IN"
+                )}
+              </strong>
+            </p>
+
+          </div>
+
+        </div>
+
+        {/* ORDERS */}
+        {filteredOrders.length === 0 ? (
 
           <div className="bg-white rounded-2xl shadow p-10 text-center">
 
             <div className="text-5xl mb-4">
-              📦
+              {orders.length === 0
+                ? "📦"
+                : "🔎"}
             </div>
 
-            <h2 className="text-2xl font-bold">
-              No Orders Yet
+            <h2 className="text-2xl font-bold text-gray-900">
+              {orders.length === 0
+                ? "No Orders Yet"
+                : "No Matching Orders"}
             </h2>
 
             <p className="text-gray-600 mt-2">
-              Customer orders will appear here.
+              {orders.length === 0
+                ? "Customer orders will appear here."
+                : "Try changing your search or filters."}
             </p>
+
+            {orders.length > 0 && (
+              <button
+                onClick={() => {
+                  setSearch("");
+                  setStatusFilter("All");
+                  setPaymentFilter("All");
+                }}
+                className="mt-5 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-semibold"
+              >
+                Clear Filters
+              </button>
+            )}
 
           </div>
 
@@ -361,298 +863,446 @@ export default function AdminOrdersPage() {
 
           <div className="space-y-6">
 
-            {orders.map((order) => (
+            {filteredOrders.map(
+              (order) => {
 
-              <div
-                key={order.id}
-                className="bg-white rounded-2xl shadow-lg p-6"
-              >
+                const isUpdating =
+                  updating === order.id;
 
-                {/* ORDER HEADER */}
+                return (
+                  <div
+                    key={order.id}
+                    className="bg-white rounded-2xl shadow-lg overflow-hidden"
+                  >
 
-                <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5 border-b pb-5">
+                    {/* ORDER HEADER */}
+                    <div className="p-6 border-b bg-gray-50">
 
-                  <div>
-                    <p className="text-sm text-gray-500">
-                      Order ID
-                    </p>
+                      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
 
-                    <p className="font-bold text-lg break-all">
-                      #{order.id}
-                    </p>
+                        <div>
+                          <p className="text-sm text-gray-500">
+                            Order ID
+                          </p>
 
-                    <p className="text-sm text-gray-500 mt-1">
-                      {formatDate(
-                        order.created_at
-                      )}
-                    </p>
-                  </div>
+                          <p className="font-bold text-lg break-all text-gray-900">
+                            #{order.id}
+                          </p>
 
-                  <div>
-                    <p className="text-sm text-gray-500">
-                      Payment Method
-                    </p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            {formatDate(
+                              order.created_at
+                            )}
+                          </p>
+                        </div>
 
-                    <p className="font-semibold">
-                      {order.payment_method}
-                    </p>
-                  </div>
+                        <div>
+                          <p className="text-sm text-gray-500">
+                            Payment Method
+                          </p>
 
-                  <div>
-                    <p className="text-sm text-gray-500">
-                      Total
-                    </p>
+                          <p className="font-semibold text-gray-900">
+                            {order.payment_method ||
+                              "N/A"}
+                          </p>
+                        </div>
 
-                    <p className="font-bold text-xl text-blue-600">
-                      ₹
-                      {Number(
-                        order.total || 0
-                      ).toLocaleString(
-                        "en-IN"
-                      )}
-                    </p>
-                  </div>
+                        <div>
+                          <p className="text-sm text-gray-500">
+                            Total
+                          </p>
 
-                  {/* PAYMENT STATUS */}
+                          <p className="font-bold text-xl text-blue-600">
+                            ₹
+                            {Number(
+                              order.total ||
+                                0
+                            ).toLocaleString(
+                              "en-IN"
+                            )}
+                          </p>
+                        </div>
 
-                  <div>
-                    <p className="text-sm text-gray-500 mb-1">
-                      Payment Status
-                    </p>
+                        {/* PAYMENT STATUS */}
+                        <div>
+                          <p className="text-sm text-gray-500 mb-1">
+                            Payment Status
+                          </p>
 
-                    <select
-                      value={
-                        order.payment_status ||
-                        "Pending"
-                      }
-                      disabled={
-                        updating === order.id
-                      }
-                      onChange={(e) =>
-                        updateOrder(
-                          order.id,
-                          {
-                            payment_status:
-                              e.target.value,
-                          }
-                        )
-                      }
-                      className="border rounded-xl px-3 py-2 font-semibold bg-white disabled:opacity-50"
-                    >
-                      <option value="Pending">
-                        Pending
-                      </option>
+                          <div className="flex flex-col gap-2">
 
-                      <option value="Paid">
-                        Paid
-                      </option>
-
-                      <option value="Failed">
-                        Failed
-                      </option>
-                    </select>
-                  </div>
-
-                  {/* ORDER STATUS */}
-
-                  <div>
-                    <p className="text-sm text-gray-500 mb-1">
-                      Order Status
-                    </p>
-
-                    <select
-                      value={
-                        order.status ||
-                        "Pending"
-                      }
-                      disabled={
-                        updating === order.id
-                      }
-                      onChange={(e) =>
-                        updateOrder(
-                          order.id,
-                          {
-                            status:
-                              e.target.value,
-                          }
-                        )
-                      }
-                      className="border rounded-xl px-3 py-2 font-semibold bg-white disabled:opacity-50"
-                    >
-                      <option value="Pending">
-                        Pending
-                      </option>
-
-                      <option value="Processing">
-                        Processing
-                      </option>
-
-                      <option value="Shipped">
-                        Shipped
-                      </option>
-
-                      <option value="Delivered">
-                        Delivered
-                      </option>
-
-                      <option value="Cancelled">
-                        Cancelled
-                      </option>
-                    </select>
-                  </div>
-
-                </div>
-
-                {/* CUSTOMER */}
-
-                <div className="grid md:grid-cols-2 gap-6 mt-6">
-
-                  <div>
-                    <h3 className="text-xl font-bold mb-3">
-                      Customer
-                    </h3>
-
-                    <p>
-                      <strong>Name:</strong>{" "}
-                      {order.customer_name}
-                    </p>
-
-                    <p className="mt-1">
-                      <strong>Phone:</strong>{" "}
-                      {order.phone}
-                    </p>
-
-                    <p className="mt-1 break-all">
-                      <strong>Email:</strong>{" "}
-                      {order.email}
-                    </p>
-                  </div>
-
-                  <div>
-                    <h3 className="text-xl font-bold mb-3">
-                      Delivery Address
-                    </h3>
-
-                    <p>
-                      {order.address}
-                    </p>
-
-                    <p className="mt-1">
-                      {order.city},{" "}
-                      {order.pincode}
-                    </p>
-                  </div>
-
-                </div>
-
-                {/* RAZORPAY DETAILS */}
-
-                {order.payment_method ===
-                  "Razorpay" && (
-
-                  <div className="mt-6 bg-gray-50 rounded-xl p-4">
-
-                    <h3 className="font-bold mb-2">
-                      Razorpay Payment Details
-                    </h3>
-
-                    <p className="text-sm break-all">
-                      <strong>
-                        Payment ID:
-                      </strong>{" "}
-                      {order.razorpay_payment_id ||
-                        "Not available"}
-                    </p>
-
-                    <p className="text-sm break-all mt-1">
-                      <strong>
-                        Razorpay Order ID:
-                      </strong>{" "}
-                      {order.razorpay_order_id ||
-                        "Not available"}
-                    </p>
-
-                  </div>
-                )}
-
-                {/* PRODUCTS */}
-
-                <div className="mt-6">
-
-                  <h3 className="text-xl font-bold mb-3">
-                    Products
-                  </h3>
-
-                  <div className="space-y-2">
-
-                    {Array.isArray(
-                      order.products
-                    ) ? (
-
-                      order.products.map(
-                        (
-                          product: any,
-                          index: number
-                        ) => (
-
-                          <div
-                            key={`${order.id}-${index}`}
-                            className="flex justify-between gap-4 border-b py-3"
-                          >
-
-                            <div>
-                              <p className="font-medium">
-                                {product.name ||
-                                  "Product"}
-                              </p>
-
-                              {product.quantity && (
-                                <p className="text-sm text-gray-500">
-                                  Quantity:{" "}
-                                  {
-                                    product.quantity
-                                  }
-                                </p>
-                              )}
-                            </div>
-
-                            <span className="font-semibold whitespace-nowrap">
-                              ₹
-                              {Number(
-                                product.price ||
-                                  0
-                              ).toLocaleString(
-                                "en-IN"
-                              )}
+                            <span
+                              className={`inline-flex w-fit px-3 py-1 rounded-full text-xs font-bold border ${getPaymentClass(
+                                order.payment_status
+                              )}`}
+                            >
+                              {order.payment_status ||
+                                "Pending"}
                             </span>
 
+                            <select
+                              value={
+                                order.payment_status ||
+                                "Pending"
+                              }
+                              disabled={
+                                isUpdating
+                              }
+                              onChange={(e) =>
+                                updateOrder(
+                                  order.id,
+                                  {
+                                    payment_status:
+                                      e.target
+                                        .value,
+                                  }
+                                )
+                              }
+                              className="border rounded-xl px-3 py-2 font-semibold bg-white disabled:opacity-50"
+                            >
+                              {PAYMENT_STATUSES.map(
+                                (
+                                  status
+                                ) => (
+                                  <option
+                                    key={
+                                      status
+                                    }
+                                    value={
+                                      status
+                                    }
+                                  >
+                                    {status}
+                                  </option>
+                                )
+                              )}
+                            </select>
+
                           </div>
+                        </div>
 
-                        )
-                      )
+                        {/* ORDER STATUS */}
+                        <div>
+                          <p className="text-sm text-gray-500 mb-1">
+                            Order Status
+                          </p>
 
-                    ) : (
+                          <div className="flex flex-col gap-2">
 
-                      <p className="text-gray-500">
-                        Product details unavailable.
-                      </p>
+                            <span
+                              className={`inline-flex w-fit px-3 py-1 rounded-full text-xs font-bold border ${getStatusClass(
+                                order.status
+                              )}`}
+                            >
+                              {order.status ||
+                                "Pending"}
+                            </span>
 
-                    )}
+                            <select
+                              value={
+                                order.status ||
+                                "Pending"
+                              }
+                              disabled={
+                                isUpdating
+                              }
+                              onChange={(e) =>
+                                updateOrder(
+                                  order.id,
+                                  {
+                                    status:
+                                      e.target
+                                        .value,
+                                  }
+                                )
+                              }
+                              className="border rounded-xl px-3 py-2 font-semibold bg-white disabled:opacity-50"
+                            >
+                              {ORDER_STATUSES.map(
+                                (
+                                  status
+                                ) => (
+                                  <option
+                                    key={
+                                      status
+                                    }
+                                    value={
+                                      status
+                                    }
+                                  >
+                                    {status}
+                                  </option>
+                                )
+                              )}
+                            </select>
+
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {isUpdating && (
+                        <div className="mt-4 text-sm font-semibold text-blue-600">
+                          ⏳ Updating order...
+                        </div>
+                      )}
+
+                    </div>
+
+                    {/* CUSTOMER + DELIVERY */}
+                    <div className="p-6">
+
+                      <div className="grid md:grid-cols-2 gap-6">
+
+                        <div>
+                          <h3 className="text-xl font-bold mb-3 text-gray-900">
+                            👤 Customer
+                          </h3>
+
+                          <div className="space-y-2 text-gray-700">
+
+                            <p>
+                              <strong>
+                                Name:
+                              </strong>{" "}
+                              {
+                                order.customer_name
+                              }
+                            </p>
+
+                            <p>
+                              <strong>
+                                Phone:
+                              </strong>{" "}
+                              {order.phone}
+                            </p>
+
+                            <p className="break-all">
+                              <strong>
+                                Email:
+                              </strong>{" "}
+                              {order.email}
+                            </p>
+
+                          </div>
+                        </div>
+
+                        <div>
+                          <h3 className="text-xl font-bold mb-3 text-gray-900">
+                            📍 Delivery Address
+                          </h3>
+
+                          <div className="text-gray-700">
+
+                            <p>
+                              {order.address}
+                            </p>
+
+                            <p className="mt-1">
+                              {order.city},{" "}
+                              {order.pincode}
+                            </p>
+
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {/* RAZORPAY DETAILS */}
+                      {order.payment_method ===
+                        "Razorpay" && (
+                        <div className="mt-6 bg-gray-50 border rounded-2xl p-5">
+
+                          <h3 className="font-bold text-lg mb-3">
+                            💳 Razorpay Payment Details
+                          </h3>
+
+                          <p className="text-sm break-all">
+                            <strong>
+                              Payment ID:
+                            </strong>{" "}
+                            {order.razorpay_payment_id ||
+                              "Not available"}
+                          </p>
+
+                          <p className="text-sm break-all mt-2">
+                            <strong>
+                              Razorpay Order ID:
+                            </strong>{" "}
+                            {order.razorpay_order_id ||
+                              "Not available"}
+                          </p>
+
+                        </div>
+                      )}
+
+                      {/* PRODUCTS */}
+                      <div className="mt-7">
+
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+
+                          <h3 className="text-xl font-bold text-gray-900">
+                            🛍️ Products
+                          </h3>
+
+                          <p className="text-sm text-gray-500">
+                            {Array.isArray(
+                              order.products
+                            )
+                              ? order.products.length
+                              : 0}{" "}
+                            product item(s)
+                          </p>
+
+                        </div>
+
+                        <div className="space-y-3">
+
+                          {Array.isArray(
+                            order.products
+                          ) ? (
+
+                            order.products.map(
+                              (
+                                product,
+                                index
+                              ) => {
+
+                                const details =
+                                  getProductDetails(
+                                    product
+                                  );
+
+                                const itemTotal =
+                                  details.price *
+                                  details.quantity;
+
+                                return (
+                                  <div
+                                    key={`${order.id}-${index}`}
+                                    className="border rounded-2xl p-4 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between"
+                                  >
+
+                                    <div className="flex gap-4 items-center">
+
+                                      {/* PRODUCT IMAGE */}
+                                      <div className="w-20 h-20 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0">
+
+                                        {details.image ? (
+
+                                          <img
+                                            src={
+                                              details.image
+                                            }
+                                            alt={
+                                              details.name
+                                            }
+                                            className="w-full h-full object-cover"
+                                          />
+
+                                        ) : (
+
+                                          <div className="w-full h-full flex items-center justify-center text-3xl">
+                                            📦
+                                          </div>
+
+                                        )}
+
+                                      </div>
+
+                                      {/* PRODUCT INFO */}
+                                      <div>
+
+                                        <p className="font-bold text-lg text-gray-900">
+                                          {
+                                            details.name
+                                          }
+                                        </p>
+
+                                        <p className="text-sm text-gray-500 mt-1 break-all">
+                                          Product ID:{" "}
+                                          {product.id ||
+                                            "N/A"}
+                                        </p>
+
+                                        <p className="text-sm text-gray-600 mt-1">
+                                          ₹
+                                          {details.price.toLocaleString(
+                                            "en-IN"
+                                          )}{" "}
+                                          ×{" "}
+                                          {
+                                            details.quantity
+                                          }
+                                        </p>
+
+                                      </div>
+
+                                    </div>
+
+                                    {/* ITEM TOTAL */}
+                                    <div className="text-left sm:text-right">
+
+                                      <p className="text-sm text-gray-500">
+                                        Item Total
+                                      </p>
+
+                                      <p className="font-bold text-xl text-blue-600">
+                                        ₹
+                                        {itemTotal.toLocaleString(
+                                          "en-IN"
+                                        )}
+                                      </p>
+
+                                    </div>
+
+                                  </div>
+                                );
+                              }
+                            )
+
+                          ) : (
+
+                            <p className="text-gray-500">
+                              Product details unavailable.
+                            </p>
+
+                          )}
+
+                        </div>
+
+                      </div>
+
+                      {/* ORDER FOOTER */}
+                      <div className="mt-6 pt-5 border-t flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+
+                        <div className="text-sm text-gray-500">
+                          Order total verified on server.
+                        </div>
+
+                        <div className="text-xl font-bold text-gray-900">
+                          Total: ₹
+                          {Number(
+                            order.total || 0
+                          ).toLocaleString(
+                            "en-IN"
+                          )}
+                        </div>
+
+                      </div>
+
+                    </div>
 
                   </div>
-
-                </div>
-
-              </div>
-
-            ))}
+                );
+              }
+            )}
 
           </div>
 
         )}
 
         {/* SECURITY NOTICE */}
-
         <div className="mt-8 bg-blue-50 border border-blue-200 rounded-2xl p-5">
 
           <div className="flex gap-3">
@@ -668,10 +1318,11 @@ export default function AdminOrdersPage() {
               </h3>
 
               <p className="text-sm text-blue-800 mt-1">
-                Orders are loaded and updated through
-                a protected server API. Only the
-                authorized NovaCart admin account can
-                access and manage customer orders.
+                Orders are loaded and updated
+                through a protected server API.
+                Only the authorized NovaCart
+                admin account can access and
+                manage customer orders.
               </p>
 
             </div>

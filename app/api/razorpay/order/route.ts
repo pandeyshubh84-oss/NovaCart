@@ -23,11 +23,64 @@ type CartItem = {
 };
 
 /* =====================================================
+   AUTHENTICATED USER
+===================================================== */
+
+async function getAuthenticatedUser(req: Request) {
+  const authorization = req.headers.get("authorization");
+
+  if (!authorization?.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authorization
+    .slice("Bearer ".length)
+    .trim();
+
+  if (!token) {
+    return null;
+  }
+
+  const {
+    data: { user },
+    error,
+  } = await supabaseAdmin.auth.getUser(token);
+
+  if (error || !user) {
+    console.error(
+      "RAZORPAY AUTHENTICATION ERROR:",
+      error
+    );
+
+    return null;
+  }
+
+  return user;
+}
+
+/* =====================================================
    POST /api/razorpay/order
 ===================================================== */
 
 export async function POST(req: Request) {
   try {
+    /* =================================================
+       AUTHENTICATION
+    ================================================= */
+
+    const user = await getAuthenticatedUser(req);
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Please login before starting payment.",
+        },
+        { status: 401 }
+      );
+    }
+
     /* =================================================
        RAZORPAY CONFIGURATION
     ================================================= */
@@ -37,7 +90,7 @@ export async function POST(req: Request) {
         {
           success: false,
           message:
-            "Razorpay server credentials are missing. Check .env.local.",
+            "Razorpay server credentials are missing.",
         },
         { status: 500 }
       );
@@ -69,6 +122,21 @@ export async function POST(req: Request) {
     }
 
     /* =================================================
+       LIMIT CART SIZE
+    ================================================= */
+
+    if (items.length > 50) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Too many different products in cart.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =================================================
        VALIDATE EACH ITEM
     ================================================= */
 
@@ -94,7 +162,8 @@ export async function POST(req: Request) {
 
       if (
         !Number.isInteger(quantity) ||
-        quantity < 1
+        quantity < 1 ||
+        quantity > 50
       ) {
         return NextResponse.json(
           {
@@ -367,9 +436,15 @@ export async function POST(req: Request) {
 
         notes: {
           source: "NovaCart",
+
+          user_id: String(
+            user.id
+          ),
+
           items: String(
             verifiedItems.length
           ),
+
           total_items: String(
             verifiedItems.reduce(
               (sum, item) =>
@@ -387,6 +462,11 @@ export async function POST(req: Request) {
     console.log(
       "RAZORPAY ORDER CREATED:",
       order.id
+    );
+
+    console.log(
+      "AUTHENTICATED USER:",
+      user.id
     );
 
     console.log(

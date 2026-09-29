@@ -3,8 +3,11 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 import { supabaseAdmin } from "../../lib/supabaseAdmin";
 
-const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
-const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
+const razorpayKeyId =
+  process.env.RAZORPAY_KEY_ID;
+
+const razorpayKeySecret =
+  process.env.RAZORPAY_KEY_SECRET;
 
 const razorpay =
   razorpayKeyId && razorpayKeySecret
@@ -13,6 +16,10 @@ const razorpay =
         key_secret: razorpayKeySecret,
       })
     : null;
+
+/* =====================================================
+   TYPES
+===================================================== */
 
 type CartItem = {
   id: string;
@@ -32,54 +39,151 @@ type CustomerData = {
   pincode: string;
 };
 
-function validateCustomer(data: CustomerData) {
+/* =====================================================
+   CUSTOMER VALIDATION
+===================================================== */
+
+function validateCustomer(
+  customer: CustomerData
+) {
   return Boolean(
-    data.customer_name?.trim() &&
-      data.phone?.trim() &&
-      data.email?.trim() &&
-      data.address?.trim() &&
-      data.city?.trim() &&
-      data.pincode?.trim()
+    customer.customer_name?.trim() &&
+      customer.phone?.trim() &&
+      customer.email?.trim() &&
+      customer.address?.trim() &&
+      customer.city?.trim() &&
+      customer.pincode?.trim()
   );
 }
 
-function getQuantity(item: CartItem) {
-  const quantity = Number(item.quantity ?? 1);
+/* =====================================================
+   QUANTITY VALIDATION
+===================================================== */
 
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) {
-    throw new Error("Invalid product quantity.");
+function getQuantity(
+  item: CartItem
+) {
+  const quantity = Number(
+    item.quantity ?? 1
+  );
+
+  if (
+    !Number.isInteger(quantity) ||
+    quantity < 1 ||
+    quantity > 50
+  ) {
+    throw new Error(
+      "Invalid product quantity."
+    );
   }
 
   return quantity;
 }
 
-async function calculateServerTotal(items: CartItem[]) {
+/* =====================================================
+   AUTHENTICATED USER
+===================================================== */
+
+async function getAuthenticatedUser(
+  req: Request
+) {
+  const authorization =
+    req.headers.get("authorization");
+
+  if (
+    !authorization?.startsWith(
+      "Bearer "
+    )
+  ) {
+    return null;
+  }
+
+  const token = authorization
+    .slice("Bearer ".length)
+    .trim();
+
+  if (!token) {
+    return null;
+  }
+
+  const {
+    data: { user },
+    error,
+  } =
+    await supabaseAdmin.auth.getUser(
+      token
+    );
+
+  if (error || !user) {
+    console.error(
+      "ORDER AUTH ERROR:",
+      error
+    );
+
+    return null;
+  }
+
+  return user;
+}
+
+/* =====================================================
+   SERVER PRICE + STOCK VERIFICATION
+===================================================== */
+
+async function calculateServerTotal(
+  items: CartItem[]
+) {
   const productIds = [
     ...new Set(
       items
         .map((item) => item?.id)
         .filter(
-          (id): id is string =>
-            typeof id === "string" && id.trim().length > 0
+          (
+            id
+          ): id is string =>
+            typeof id ===
+              "string" &&
+            id.trim().length > 0
         )
     ),
   ];
 
   if (productIds.length === 0) {
-    throw new Error("Invalid cart.");
+    throw new Error(
+      "Invalid cart."
+    );
   }
 
-  const { data: products, error } = await supabaseAdmin
-    .from("products")
-    .select("id, price, stock")
-    .in("id", productIds);
+  const {
+    data: products,
+    error,
+  } =
+    await supabaseAdmin
+      .from("products")
+      .select(
+        "id, name, description, category, price, stock, image"
+      )
+      .in(
+        "id",
+        productIds
+      );
 
   if (error) {
-    console.error("PRODUCT LOOKUP ERROR:", error);
-    throw new Error("Unable to verify products.");
+    console.error(
+      "PRODUCT LOOKUP ERROR:",
+      error
+    );
+
+    throw new Error(
+      "Unable to verify products."
+    );
   }
 
-  if (!products || products.length !== productIds.length) {
+  if (
+    !products ||
+    products.length !==
+      productIds.length
+  ) {
     throw new Error(
       "One or more products are no longer available."
     );
@@ -87,91 +191,117 @@ async function calculateServerTotal(items: CartItem[]) {
 
   let total = 0;
 
-  // Expanded IDs are used by the stock reservation RPC.
-  // Example: quantity 3 => [productId, productId, productId]
-  const stockReservationIds: string[] = [];
+  const orderProducts: any[] =
+    [];
 
   for (const item of items) {
-    const product = products.find(
-      (p) => String(p.id) === String(item.id)
-    );
+    const product =
+      products.find(
+        (p) =>
+          String(p.id) ===
+          String(item.id)
+      );
 
     if (!product) {
-      throw new Error("Product not found.");
+      throw new Error(
+        "Product not found."
+      );
     }
 
-    const quantity = getQuantity(item);
-    const stock = Number(product.stock);
-    const price = Number(product.price);
+    const quantity =
+      getQuantity(item);
 
-    if (!Number.isFinite(price) || price < 0) {
+    const stock =
+      Number(product.stock);
+
+    const price =
+      Number(product.price);
+
+    if (
+      !Number.isFinite(price) ||
+      price < 0
+    ) {
       throw new Error(
-        `Invalid price for product "${item.name || "item"}".`
+        `Invalid price for product "${product.name || "item"}".`
       );
     }
 
     if (stock < quantity) {
       throw new Error(
-        `Only ${stock} unit(s) of "${item.name || "item"}" are available.`
+        `${product.name || "Product"} has only ${stock} item(s) in stock.`
       );
     }
 
-    total += price * quantity;
+    total +=
+      price * quantity;
 
-    for (let i = 0; i < quantity; i++) {
-      stockReservationIds.push(String(product.id));
-    }
+    orderProducts.push({
+      id: product.id,
+      name: product.name,
+      price,
+      quantity,
+      image: product.image,
+    });
   }
 
-  if (!Number.isFinite(total) || total <= 0) {
-    throw new Error("Invalid order total.");
+  total =
+    Math.round(total * 100) /
+    100;
+
+  if (
+    !Number.isFinite(total) ||
+    total <= 0
+  ) {
+    throw new Error(
+      "Invalid order total."
+    );
   }
 
   return {
     total,
     productIds,
-    stockReservationIds,
+    orderProducts,
   };
 }
 
-async function reserveStock(productIds: string[]) {
-  const { data, error } = await supabaseAdmin.rpc(
-    "reserve_product_stock",
-    {
-      p_product_ids: productIds,
-    }
-  );
+/* =====================================================
+   POST /api/orders
+===================================================== */
 
-  if (error) {
-    console.error("STOCK RESERVATION ERROR:", error);
-    throw new Error("Unable to reserve product stock.");
-  }
-
-  if (data !== true) {
-    throw new Error(
-      "One or more products are no longer available."
-    );
-  }
-}
-
-async function releaseStock(productIds: string[]) {
-  if (!productIds.length) return;
-
-  const { error } = await supabaseAdmin.rpc(
-    "release_product_stock",
-    {
-      p_product_ids: productIds,
-    }
-  );
-
-  if (error) {
-    console.error("STOCK RELEASE ERROR:", error);
-  }
-}
-
-export async function POST(req: Request) {
+export async function POST(
+  req: Request
+) {
   try {
-    const body = await req.json();
+    console.log(
+      "CREATE ORDER API CALLED"
+    );
+
+    /* =================================================
+       1. AUTHENTICATION
+    ================================================= */
+
+    const user =
+      await getAuthenticatedUser(
+        req
+      );
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Unauthorized. Please login.",
+        },
+        { status: 401 }
+      );
+    }
+
+    /* =================================================
+       2. READ REQUEST
+    ================================================= */
+
+    const body =
+      await req.json();
 
     const {
       customer_name,
@@ -187,339 +317,205 @@ export async function POST(req: Request) {
       razorpay_signature,
     } = body;
 
-    const customer: CustomerData = {
-      customer_name,
-      phone,
-      email,
-      address,
-      city,
-      pincode,
-    };
+    const customer: CustomerData =
+      {
+        customer_name,
+        phone,
+        email,
+        address,
+        city,
+        pincode,
+      };
 
-    // =====================================================
-    // CUSTOMER VALIDATION
-    // =====================================================
+    /* =================================================
+       3. CUSTOMER VALIDATION
+    ================================================= */
 
-    if (!validateCustomer(customer)) {
+    if (
+      !validateCustomer(
+        customer
+      )
+    ) {
       return NextResponse.json(
         {
           success: false,
-          message: "Please fill all customer details.",
+          message:
+            "Please fill all customer details.",
         },
         { status: 400 }
       );
     }
 
-    // =====================================================
-    // CART VALIDATION
-    // =====================================================
+    /* =================================================
+       4. CART VALIDATION
+    ================================================= */
 
     if (
-      !Array.isArray(cartItems) ||
+      !Array.isArray(
+        cartItems
+      ) ||
       cartItems.length === 0
     ) {
       return NextResponse.json(
         {
           success: false,
-          message: "Your cart is empty.",
+          message:
+            "Your cart is empty.",
         },
         { status: 400 }
       );
     }
 
-    // =====================================================
-    // SERVER PRICE + STOCK VERIFICATION
-    // =====================================================
+    if (
+      cartItems.length > 50
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Too many different products in cart.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =================================================
+       5. NORMALIZE CART
+    ================================================= */
+
+    const cleanCartItems: CartItem[] =
+      cartItems.map(
+        (item: any) => ({
+          id: String(
+            item?.id ?? ""
+          ).trim(),
+
+          name:
+            typeof item?.name ===
+            "string"
+              ? item.name
+              : undefined,
+
+          price:
+            item?.price !==
+            undefined
+              ? Number(
+                  item.price
+                )
+              : undefined,
+
+          image:
+            typeof item?.image ===
+            "string"
+              ? item.image
+              : undefined,
+
+          description:
+            typeof item?.description ===
+            "string"
+              ? item.description
+              : undefined,
+
+          quantity:
+            Number(
+              item?.quantity ??
+                1
+            ),
+        })
+      );
+
+    for (const item of
+      cleanCartItems) {
+      if (!item.id) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Invalid product in cart.",
+          },
+          { status: 400 }
+        );
+      }
+
+      try {
+        getQuantity(item);
+      } catch (error: any) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              error?.message ||
+              "Invalid product quantity.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /* =================================================
+       6. SERVER PRICE + STOCK VERIFICATION
+    ================================================= */
 
     const {
       total,
       productIds,
-      stockReservationIds,
-    } = await calculateServerTotal(cartItems);
+      orderProducts,
+    } =
+      await calculateServerTotal(
+        cleanCartItems
+      );
 
-    // =====================================================
-    // COD
-    // =====================================================
+    console.log(
+      "SERVER VERIFIED TOTAL:",
+      total
+    );
 
-    if (payment_method === "COD") {
-      await reserveStock(stockReservationIds);
+    /* =================================================
+       7. PAYMENT METHOD
+    ================================================= */
 
-      const { data, error } = await supabaseAdmin
-        .from("orders")
-        .insert([
-          {
-            customer_name: customer.customer_name.trim(),
-            phone: customer.phone.trim(),
-            email: customer.email.trim(),
-            address: customer.address.trim(),
-            city: customer.city.trim(),
-            pincode: customer.pincode.trim(),
-            payment_method: "COD",
-            total,
-            products: cartItems,
-            payment_status: "Pending",
-            status: "Pending",
-          },
-        ])
-        .select()
-        .single();
+    const finalPaymentMethod =
+      String(
+        payment_method || ""
+      ).trim();
 
-      if (error) {
-        console.error(
-          "COD ORDER DATABASE ERROR:",
-          error
-        );
-
-        await releaseStock(stockReservationIds);
-
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Unable to save COD order.",
-          },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: "COD order placed successfully.",
-        order: data,
-      });
+    if (
+      finalPaymentMethod !==
+        "COD" &&
+      finalPaymentMethod !==
+        "Razorpay"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invalid payment method.",
+        },
+        { status: 400 }
+      );
     }
 
-    // =====================================================
-    // RAZORPAY
-    // =====================================================
+    /* =================================================
+       8. COD
+    ================================================= */
 
-    if (payment_method === "Razorpay") {
-      if (!razorpay || !razorpayKeySecret) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Razorpay server configuration is missing.",
-          },
-          { status: 500 }
-        );
-      }
+    if (
+      finalPaymentMethod ===
+      "COD"
+    ) {
+      console.log(
+        "PROCESSING COD ORDER"
+      );
 
-      if (
-        !razorpay_order_id ||
-        !razorpay_payment_id ||
-        !razorpay_signature
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Missing Razorpay payment details.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // ===================================================
-      // DUPLICATE PAYMENT CHECK
-      // ===================================================
-
-      const { data: existingOrder, error: existingError } =
+      const {
+        data: order,
+        error: orderError,
+      } =
         await supabaseAdmin
           .from("orders")
-          .select("*")
-          .eq("razorpay_order_id", razorpay_order_id)
-          .maybeSingle();
+          .insert({
+            user_id: user.id,
 
-      if (existingError) {
-        console.error(
-          "EXISTING ORDER CHECK ERROR:",
-          existingError
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Unable to verify payment order.",
-          },
-          { status: 500 }
-        );
-      }
-
-      if (existingOrder) {
-        return NextResponse.json({
-          success: true,
-          message: "Payment already processed.",
-          order: existingOrder,
-          duplicate: true,
-        });
-      }
-
-      // ===================================================
-      // VERIFY PAYMENT SIGNATURE
-      // ===================================================
-
-      const signatureBody =
-        `${razorpay_order_id}|${razorpay_payment_id}`;
-
-      const expectedSignature = crypto
-        .createHmac("sha256", razorpayKeySecret)
-        .update(signatureBody)
-        .digest("hex");
-
-      if (
-        !crypto.timingSafeEqual(
-          Buffer.from(expectedSignature),
-          Buffer.from(String(razorpay_signature))
-        )
-      ) {
-        console.error(
-          "INVALID RAZORPAY SIGNATURE"
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Invalid Razorpay payment signature.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // ===================================================
-      // VERIFY RAZORPAY ORDER AMOUNT
-      // ===================================================
-
-      const razorpayOrder =
-        await razorpay.orders.fetch(
-          razorpay_order_id
-        );
-
-      const expectedAmount =
-        Math.round(total * 100);
-
-      if (
-        Number(razorpayOrder.amount) !==
-        expectedAmount
-      ) {
-        console.error(
-          "RAZORPAY AMOUNT MISMATCH",
-          {
-            razorpayAmount:
-              razorpayOrder.amount,
-            expectedAmount,
-          }
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Payment amount does not match the order.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // ===================================================
-      // VERIFY PAYMENT BELONGS TO THIS ORDER
-      // ===================================================
-
-      const razorpayPayment =
-        await razorpay.payments.fetch(
-          razorpay_payment_id
-        );
-
-      if (
-        String(razorpayPayment.order_id) !==
-        String(razorpay_order_id)
-      ) {
-        console.error(
-          "RAZORPAY ORDER ID MISMATCH"
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Payment does not belong to this order.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // ===================================================
-      // VERIFY PAYMENT AMOUNT
-      // ===================================================
-
-      if (
-        Number(razorpayPayment.amount) !==
-        expectedAmount
-      ) {
-        console.error(
-          "RAZORPAY PAYMENT AMOUNT MISMATCH"
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Payment amount verification failed.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // ===================================================
-      // VERIFY CAPTURED STATUS
-      // ===================================================
-
-      if (razorpayPayment.status !== "captured") {
-        console.error(
-          "RAZORPAY PAYMENT NOT CAPTURED:",
-          razorpayPayment.status
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Payment has not been captured yet.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // ===================================================
-      // RESERVE STOCK
-      // ===================================================
-
-      try {
-        await reserveStock(stockReservationIds);
-      } catch (stockError: any) {
-        console.error(
-          "RAZORPAY STOCK ERROR:",
-          stockError
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Payment received, but the product is no longer available. Please contact support for a refund.",
-          },
-          { status: 409 }
-        );
-      }
-
-      // ===================================================
-      // SAVE PAID ORDER
-      // ===================================================
-
-      const { data, error } = await supabaseAdmin
-        .from("orders")
-        .insert([
-          {
             customer_name:
               customer.customer_name.trim(),
 
@@ -538,91 +534,530 @@ export async function POST(req: Request) {
             pincode:
               customer.pincode.trim(),
 
-            payment_method: "Razorpay",
+            payment_method:
+              "COD",
 
             total,
 
-            products: cartItems,
+            products:
+              orderProducts,
 
-            payment_status: "Paid",
+            status:
+              "Processing",
 
-            status: "Processing",
+            payment_status:
+              "Pending",
+          })
+          .select()
+          .single();
 
-            razorpay_payment_id,
-
-            razorpay_order_id,
-          },
-        ])
-        .select()
-        .single();
-
-      // ===================================================
-      // ORDER SAVE FAILED
-      // ===================================================
-
-      if (error) {
+      if (orderError) {
         console.error(
-          "PAID ORDER DATABASE ERROR:",
-          error
+          "COD ORDER DATABASE ERROR:",
+          orderError
         );
-
-        await releaseStock(stockReservationIds);
-
-        // Another request may have created the order
-        // at almost the same time.
-        if (error.code === "23505") {
-          const { data: duplicateOrder } =
-            await supabaseAdmin
-              .from("orders")
-              .select("*")
-              .eq(
-                "razorpay_order_id",
-                razorpay_order_id
-              )
-              .maybeSingle();
-
-          if (duplicateOrder) {
-            return NextResponse.json({
-              success: true,
-              message: "Payment already processed.",
-              order: duplicateOrder,
-              duplicate: true,
-            });
-          }
-        }
 
         return NextResponse.json(
           {
             success: false,
             message:
-              "Payment verified, but order could not be saved. Please contact support.",
+              "Unable to create COD order.",
           },
           { status: 500 }
         );
       }
 
+      /* -----------------------------------------------
+         REDUCE STOCK
+      ----------------------------------------------- */
+
+      for (const item of
+        cleanCartItems) {
+        const product =
+          productIds.find(
+            (id) =>
+              String(id) ===
+              String(item.id)
+          );
+
+        if (!product) {
+          continue;
+        }
+
+        const originalProduct =
+          (
+            await supabaseAdmin
+              .from("products")
+              .select(
+                "id, stock"
+              )
+              .eq(
+                "id",
+                item.id
+              )
+              .single()
+          ).data;
+
+        if (!originalProduct) {
+          continue;
+        }
+
+        const newStock =
+          Number(
+            originalProduct.stock
+          ) -
+          getQuantity(item);
+
+        const {
+          error: stockError,
+        } =
+          await supabaseAdmin
+            .from("products")
+            .update({
+              stock:
+                newStock,
+            })
+            .eq(
+              "id",
+              item.id
+            );
+
+        if (stockError) {
+          console.error(
+            "COD STOCK UPDATE ERROR:",
+            stockError
+          );
+        }
+      }
+
+      console.log(
+        "COD ORDER CREATED:",
+        order.id
+      );
+
       return NextResponse.json({
         success: true,
         message:
-          "Payment verified and order placed successfully.",
-        order: data,
+          "COD order placed successfully.",
+        order,
       });
     }
 
-    // =====================================================
-    // INVALID PAYMENT METHOD
-    // =====================================================
+    /* =================================================
+       9. RAZORPAY CONFIGURATION
+    ================================================= */
 
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid payment method.",
-      },
-      { status: 400 }
+    if (
+      !razorpay ||
+      !razorpayKeySecret
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Razorpay server configuration is missing.",
+        },
+        { status: 500 }
+      );
+    }
+
+    /* =================================================
+       10. RAZORPAY PAYMENT DETAILS
+    ================================================= */
+
+    if (
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Missing Razorpay payment details.",
+        },
+        { status: 400 }
+      );
+    }
+
+    console.log(
+      "VERIFYING RAZORPAY PAYMENT:",
+      razorpay_payment_id
     );
+
+    /* =================================================
+       11. DUPLICATE PAYMENT CHECK
+    ================================================= */
+
+    const {
+      data: existingOrder,
+      error: existingError,
+    } =
+      await supabaseAdmin
+        .from("orders")
+        .select("*")
+        .eq(
+          "razorpay_order_id",
+          razorpay_order_id
+        )
+        .maybeSingle();
+
+    if (existingError) {
+      console.error(
+        "EXISTING ORDER CHECK ERROR:",
+        existingError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Unable to verify payment order.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (existingOrder) {
+      if (
+        String(
+          existingOrder.user_id
+        ) !==
+        String(user.id)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "You are not authorized to access this order.",
+          },
+          { status: 403 }
+        );
+      }
+
+      console.log(
+        "DUPLICATE RAZORPAY ORDER:",
+        razorpay_order_id
+      );
+
+      return NextResponse.json({
+        success: true,
+        message:
+          "Payment already processed.",
+        order:
+          existingOrder,
+        duplicate: true,
+      });
+    }
+
+    /* =================================================
+       12. VERIFY RAZORPAY SIGNATURE
+    ================================================= */
+
+    const signatureBody =
+      `${razorpay_order_id}|${razorpay_payment_id}`;
+
+    const expectedSignature =
+      crypto
+        .createHmac(
+          "sha256",
+          razorpayKeySecret
+        )
+        .update(
+          signatureBody
+        )
+        .digest("hex");
+
+    const providedSignature =
+      String(
+        razorpay_signature
+      );
+
+    const expectedBuffer =
+      Buffer.from(
+        expectedSignature,
+        "utf8"
+      );
+
+    const providedBuffer =
+      Buffer.from(
+        providedSignature,
+        "utf8"
+      );
+
+    const signatureValid =
+      expectedBuffer.length ===
+        providedBuffer.length &&
+      crypto.timingSafeEqual(
+        expectedBuffer,
+        providedBuffer
+      );
+
+    console.log(
+      "RAZORPAY SIGNATURE VALID:",
+      signatureValid
+    );
+
+    if (!signatureValid) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invalid Razorpay payment signature.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =================================================
+       13. FETCH RAZORPAY ORDER
+    ================================================= */
+
+    const razorpayOrder =
+      await razorpay.orders.fetch(
+        razorpay_order_id
+      );
+
+    const expectedAmount =
+      Math.round(
+        total * 100
+      );
+
+    console.log(
+      "RAZORPAY AMOUNT:",
+      razorpayOrder.amount
+    );
+
+    console.log(
+      "EXPECTED AMOUNT:",
+      expectedAmount
+    );
+
+    if (
+      Number(
+        razorpayOrder.amount
+      ) !== expectedAmount
+    ) {
+      console.error(
+        "RAZORPAY AMOUNT MISMATCH"
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Payment amount does not match the order.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =================================================
+       14. FETCH RAZORPAY PAYMENT
+    ================================================= */
+
+    const razorpayPayment =
+      await razorpay.payments.fetch(
+        razorpay_payment_id
+      );
+
+    if (
+      String(
+        razorpayPayment.order_id
+      ) !==
+      String(
+        razorpay_order_id
+      )
+    ) {
+      console.error(
+        "RAZORPAY ORDER ID MISMATCH"
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Payment does not belong to this order.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =================================================
+       15. PAYMENT STATUS
+    ================================================= */
+
+    if (
+      razorpayPayment.status !==
+      "captured"
+    ) {
+      console.error(
+        "RAZORPAY PAYMENT NOT CAPTURED:",
+        razorpayPayment.status
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Payment has not been captured yet.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =================================================
+       16. SAVE PAID ORDER
+    ================================================= */
+
+    const {
+      data: order,
+      error: orderError,
+    } =
+      await supabaseAdmin
+        .from("orders")
+        .insert({
+          user_id: user.id,
+
+          customer_name:
+            customer.customer_name.trim(),
+
+          phone:
+            customer.phone.trim(),
+
+          email:
+            customer.email.trim(),
+
+          address:
+            customer.address.trim(),
+
+          city:
+            customer.city.trim(),
+
+          pincode:
+            customer.pincode.trim(),
+
+          payment_method:
+            "Razorpay",
+
+          total,
+
+          products:
+            orderProducts,
+
+          status:
+            "Processing",
+
+          payment_status:
+            "Paid",
+
+          razorpay_order_id,
+
+          razorpay_payment_id,
+
+          razorpay_signature,
+        })
+        .select()
+        .single();
+
+    if (orderError) {
+      console.error(
+        "PAID ORDER DATABASE ERROR:",
+        orderError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Payment verified, but order could not be saved. Please contact support.",
+        },
+        { status: 500 }
+      );
+    }
+
+    /* =================================================
+       17. REDUCE STOCK
+    ================================================= */
+
+    for (const item of
+      cleanCartItems) {
+      const quantity =
+        getQuantity(item);
+
+      const {
+        data: currentProduct,
+        error: fetchStockError,
+      } =
+        await supabaseAdmin
+          .from("products")
+          .select(
+            "id, stock"
+          )
+          .eq(
+            "id",
+            item.id
+          )
+          .single();
+
+      if (
+        fetchStockError ||
+        !currentProduct
+      ) {
+        console.error(
+          "STOCK FETCH ERROR:",
+          fetchStockError
+        );
+
+        continue;
+      }
+
+      const newStock =
+        Number(
+          currentProduct.stock
+        ) - quantity;
+
+      const {
+        error:
+          stockUpdateError,
+      } =
+        await supabaseAdmin
+          .from("products")
+          .update({
+            stock:
+              newStock,
+          })
+          .eq(
+            "id",
+            item.id
+          );
+
+      if (stockUpdateError) {
+        console.error(
+          "STOCK UPDATE ERROR:",
+          stockUpdateError
+        );
+      }
+    }
+
+    /* =================================================
+       18. SUCCESS
+    ================================================= */
+
+    console.log(
+      "ORDER CREATED SUCCESSFULLY:",
+      order.id
+    );
+
+    return NextResponse.json({
+      success: true,
+      message:
+        "Payment verified and order placed successfully.",
+      order,
+    });
   } catch (error: any) {
     console.error(
-      "ORDERS API ERROR:",
+      "CREATE ORDER ERROR:",
       error
     );
 

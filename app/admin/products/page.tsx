@@ -18,8 +18,6 @@ type Product = {
   featured: boolean;
 };
 
-const ADMIN_EMAIL = "j.ptravels2297@gmail.com";
-
 export default function AdminProductsPage() {
   const router = useRouter();
 
@@ -56,19 +54,7 @@ export default function AdminProductsPage() {
         return;
       }
 
-      const userEmail =
-        session.user.email?.toLowerCase().trim() || "";
-
-      if (userEmail !== ADMIN_EMAIL.toLowerCase()) {
-        alert("⛔ Access denied. Admin only.");
-
-        await supabase.auth.signOut();
-
-        router.replace("/login");
-        return;
-      }
-
-      await loadProducts();
+     await loadProducts();
 
       setLoading(false);
     } catch (error) {
