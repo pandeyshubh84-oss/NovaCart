@@ -12,6 +12,7 @@ type Product = {
   description: string;
   price: number;
   image: string;
+  category?: string;
   stock?: number;
   compare_at_price?: number;
   rating?: number;
@@ -27,10 +28,21 @@ const TRUST_BADGES = [
   { icon: "✅", title: "Quality Products", text: "Carefully selected items" },
 ];
 
+// Category names must match the "category" column in Supabase exactly
+// (capital letters do not matter).
+const CATEGORY_TILES = [
+  { name: "Kurtas", icon: "👘", text: "Festive kurtas and sets" },
+  { name: "Sarees", icon: "🥻", text: "Elegant sarees for every occasion" },
+  { name: "Accessories", icon: "💍", text: "Jewellery, dupattas and more" },
+];
+
+const normalize = (value?: string) => (value || "").trim().toLowerCase();
+
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
+  const [selectedCategory, setSelectedCategory] = useState("All");
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -58,9 +70,23 @@ export default function Home() {
     fetchProducts();
   }, [fetchProducts]);
 
+  function chooseCategory(name: string) {
+    setSelectedCategory(name);
+    setTimeout(() => {
+      document
+        .getElementById("products")
+        ?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
+  }
+
   const filteredProducts = products
     .filter((product) =>
       product.name.toLowerCase().includes(search.toLowerCase())
+    )
+    .filter(
+      (product) =>
+        selectedCategory === "All" ||
+        normalize(product.category) === normalize(selectedCategory)
     )
     .sort((a, b) => {
       if (sortBy === "price-low") return a.price - b.price;
@@ -108,16 +134,74 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Shop by Category */}
+      <section className="max-w-7xl mx-auto px-6 md:px-8 pt-10">
+        <div className="flex items-end justify-between mb-6">
+          <div>
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
+              Shop by Category
+            </h2>
+            <p className="text-gray-500 mt-2">
+              Find the perfect festive look for you.
+            </p>
+          </div>
+          <button
+            onClick={() => chooseCategory("All")}
+            className="text-blue-600 font-semibold hover:underline"
+          >
+            View all
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+          {CATEGORY_TILES.map((tile) => {
+            const count = products.filter(
+              (p) => normalize(p.category) === normalize(tile.name)
+            ).length;
+            const isActive = normalize(selectedCategory) === normalize(tile.name);
+
+            return (
+              <button
+                key={tile.name}
+                onClick={() => chooseCategory(tile.name)}
+                className={`text-left rounded-2xl p-6 shadow-sm border-2 transition hover:shadow-md hover:-translate-y-1 ${
+                  isActive
+                    ? "bg-blue-50 border-blue-600"
+                    : "bg-white border-transparent"
+                }`}
+              >
+                <span className="text-4xl">{tile.icon}</span>
+                <h3 className="text-xl font-bold text-gray-900 mt-3">
+                  {tile.name}
+                </h3>
+                <p className="text-gray-500 text-sm mt-1">{tile.text}</p>
+                <p className="text-blue-600 text-sm font-semibold mt-3">
+                  {count > 0 ? `${count} items` : "Coming soon"}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Products */}
       <section id="products" className="max-w-7xl mx-auto p-6 md:p-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-8">
           <div>
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-              Featured Products
+              {selectedCategory === "All" ? "Featured Products" : selectedCategory}
             </h2>
             <p className="text-gray-500 mt-2">
               Discover premium products at the best prices.
             </p>
+            {selectedCategory !== "All" && (
+              <button
+                onClick={() => setSelectedCategory("All")}
+                className="text-blue-600 text-sm font-semibold mt-2 hover:underline"
+              >
+                ← Show all products
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -164,8 +248,18 @@ export default function Home() {
             <p className="text-gray-600 text-lg">
               {search
                 ? `No products found for "${search}".`
+                : selectedCategory !== "All"
+                ? `Products in ${selectedCategory} are coming soon.`
                 : "New products are coming soon. Please check back later."}
             </p>
+            {selectedCategory !== "All" && (
+              <button
+                onClick={() => setSelectedCategory("All")}
+                className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700"
+              >
+                Show all products
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
