@@ -5,6 +5,7 @@ import { supabase } from "./lib/supabase";
 import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
 import ProductCard from "./components/ProductCard";
+import OfferBanner from "./components/OfferBanner";
 
 type Product = {
   id: string;
@@ -96,9 +97,12 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-100">
+       {/* Offer Banner */}
+      <OfferBanner />
+
       {/* Navbar */}
       <Navbar />
-
+      
       {/* Search Section */}
       <section className="bg-white px-6 py-5 border-b">
         <div className="max-w-7xl mx-auto flex justify-center">
