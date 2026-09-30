@@ -61,7 +61,7 @@ export default function Navbar() {
           🛍️ NovaCart
         </Link>
 
-        <div className="flex items-center gap-6 font-semibold">
+        <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2 font-semibold">
           <Link
             href="/"
             className="hover:text-blue-600 transition"
@@ -74,6 +74,13 @@ export default function Navbar() {
             className="hover:text-blue-600 transition"
           >
             Categories
+          </Link>
+
+          <Link
+            href="/offers"
+            className="text-red-600 hover:text-red-700 transition"
+          >
+            🔥 Offers
           </Link>
 
           <Link
