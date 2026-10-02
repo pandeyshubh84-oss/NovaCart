@@ -29,25 +29,32 @@ export default function OfferBanner() {
   if (!OFFER.enabled || (mounted && !timeLeft)) return null;
 
   const box = (value: number, label: string) => (
-    <div className="bg-white/20 rounded-lg px-2 py-1 text-center min-w-[52px]">
-      <p className="text-lg font-bold leading-none">
+    <div className="border border-[#d4af37]/40 bg-black rounded-md px-2 py-1 text-center min-w-[46px] md:min-w-[52px]">
+      <p className="text-base md:text-lg font-bold leading-none text-[#f5d77a]">
         {String(value).padStart(2, "0")}
       </p>
-      <p className="text-[10px] uppercase tracking-wide mt-1">{label}</p>
+      <p className="text-[9px] uppercase tracking-widest mt-1 text-zinc-400">
+        {label}
+      </p>
     </div>
   );
 
   return (
-    <div className="bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white">
+    <div className="bg-gradient-to-r from-black via-[#1a1405] to-black border-b border-[#d4af37]/40">
       <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row items-center justify-center gap-3 md:gap-6 text-center">
-        <p className="font-semibold">
-          🎉 <span className="font-bold">{OFFER.title}</span> —{" "}
-          {OFFER.message}
+        <p className="text-sm md:text-base text-zinc-300">
+          <span className="text-[#d4af37]">✦</span>{" "}
+          <span className="font-serif font-bold tracking-widest text-[#f5d77a] uppercase">
+            {OFFER.title}
+          </span>{" "}
+          <span className="text-zinc-400">—</span> {OFFER.message}
         </p>
 
         {mounted && timeLeft && (
           <div className="flex items-center gap-2">
-            <span className="text-sm">Ends in</span>
+            <span className="text-xs text-zinc-500 uppercase tracking-widest">
+              Ends in
+            </span>
             {box(timeLeft.days, "Days")}
             {box(timeLeft.hours, "Hrs")}
             {box(timeLeft.minutes, "Min")}
@@ -57,7 +64,7 @@ export default function OfferBanner() {
 
         <a
           href={OFFER.buttonLink}
-          className="bg-white text-red-600 font-semibold px-5 py-2 rounded-full text-sm hover:bg-yellow-100"
+          className="bg-gradient-to-r from-[#d4af37] to-[#f5d77a] text-black font-bold px-5 py-2 rounded-full text-xs md:text-sm tracking-widest uppercase hover:shadow-[0_0_18px_rgba(212,175,55,0.5)] transition-all"
         >
           {OFFER.buttonText}
         </a>

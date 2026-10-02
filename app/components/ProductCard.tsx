@@ -15,11 +15,9 @@ type Product = {
   review_count?: number;
 };
 
-export default function ProductCard({
-  product,
-}: {
-  product: Product;
-}) {
+const isVideo = (url: string) => /\.(mp4|webm|mov)(\?.*)?$/i.test(url);
+
+export default function ProductCard({ product }: { product: Product }) {
   const { addToCart } = useCart();
 
   const stock = product.stock ?? 0;
@@ -37,13 +35,10 @@ export default function ProductCard({
       )
     : 0;
 
-  const rating =
-    typeof product.rating === "number" ? product.rating : null;
+  const rating = typeof product.rating === "number" ? product.rating : null;
 
   const reviewCount =
-    typeof product.review_count === "number"
-      ? product.review_count
-      : 0;
+    typeof product.review_count === "number" ? product.review_count : 0;
 
   const handleAddToCart = () => {
     if (isOutOfStock) return;
@@ -52,12 +47,11 @@ export default function ProductCard({
   };
 
   return (
-    <div className="relative bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-2xl duration-300 hover:-translate-y-2 border border-gray-100">
-
+    <div className="relative bg-black rounded-2xl overflow-hidden border border-[#d4af37]/20 hover:border-[#d4af37]/70 hover:shadow-[0_0_28px_rgba(212,175,55,0.2)] duration-300 hover:-translate-y-1 flex flex-col">
       {/* Discount Badge */}
       {hasDiscount && (
-        <div className="absolute top-3 left-3 z-10">
-          <span className="bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow">
+        <div className="absolute top-2 left-2 z-10">
+          <span className="bg-gradient-to-r from-[#d4af37] to-[#f5d77a] text-black text-[10px] sm:text-xs font-bold px-2 sm:px-3 py-1 rounded-md shadow">
             {discountPercentage}% OFF
           </span>
         </div>
@@ -65,91 +59,103 @@ export default function ProductCard({
 
       {/* Out of Stock Badge */}
       {isOutOfStock && (
-        <div className="absolute top-3 right-3 z-10">
-          <span className="bg-gray-900 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow">
+        <div className="absolute top-2 right-2 z-10">
+          <span className="bg-zinc-800 text-zinc-200 text-[10px] sm:text-xs font-bold px-2 sm:px-3 py-1 rounded-md border border-zinc-700">
             Out of Stock
           </span>
         </div>
       )}
 
-      {/* Product Image */}
+      {/* Product Image / Video */}
       <Link href={`/product/${product.id}`}>
-        <div className="relative w-full h-72 bg-gray-100 cursor-pointer overflow-hidden">
-          <img
-            src={product.image}
-            alt={product.name}
-            className={`w-full h-full object-cover transition duration-500 hover:scale-105 ${
-              isOutOfStock ? "opacity-60 grayscale" : ""
-            }`}
-          />
+        <div className="relative w-full h-52 sm:h-72 bg-zinc-950 cursor-pointer overflow-hidden">
+          {isVideo(product.image) ? (
+            <video
+              src={product.image}
+              autoPlay
+              muted
+              loop
+              playsInline
+              className={`w-full h-full object-cover ${
+                isOutOfStock ? "opacity-60 grayscale" : ""
+              }`}
+            />
+          ) : (
+            <img
+              src={product.image}
+              alt={product.name}
+              className={`w-full h-full object-cover transition duration-500 hover:scale-105 ${
+                isOutOfStock ? "opacity-60 grayscale" : ""
+              }`}
+            />
+          )}
         </div>
       </Link>
 
       {/* Product Info */}
-      <div className="p-5">
-
+      <div className="p-3 sm:p-5 flex flex-col flex-1">
         {/* Product Name */}
         <Link href={`/product/${product.id}`}>
-          <h2 className="text-2xl font-bold hover:text-blue-600 cursor-pointer transition line-clamp-1">
+          <h2 className="font-serif text-sm sm:text-xl text-zinc-100 hover:text-[#d4af37] cursor-pointer transition line-clamp-1 tracking-wide">
             {product.name}
           </h2>
         </Link>
 
-        {/* Description */}
-        <p className="text-gray-500 mt-2 line-clamp-2 min-h-[48px]">
+        {/* Description (mobile pe chhupa hua) */}
+        <p className="hidden sm:block text-zinc-500 text-sm mt-2 line-clamp-2 min-h-[40px]">
           {product.description}
         </p>
 
         {/* Rating */}
         {rating !== null ? (
-          <div className="flex items-center gap-1 mt-3">
-            <span className="text-yellow-500 text-lg">
+          <div className="flex items-center gap-1 mt-2 sm:mt-3">
+            <span className="text-[#d4af37] text-sm sm:text-lg">
               {"★".repeat(Math.round(rating))}
             </span>
 
-            <span className="text-gray-500 text-sm ml-1">
+            <span className="text-zinc-500 text-xs sm:text-sm ml-1">
               {rating.toFixed(1)}
               {reviewCount > 0 && ` (${reviewCount})`}
             </span>
           </div>
         ) : (
-          <div className="mt-3 text-gray-400 text-sm">
+          <div className="mt-2 sm:mt-3 text-zinc-600 text-xs sm:text-sm">
             No reviews yet
           </div>
         )}
 
         {/* Price */}
-        <div className="flex items-center gap-3 mt-4 flex-wrap">
-          <span className="text-3xl font-bold text-blue-600">
+        <div className="flex items-center gap-2 sm:gap-3 mt-3 sm:mt-4 flex-wrap">
+          <span className="font-serif text-xl sm:text-3xl font-bold text-[#f5d77a]">
             ₹{product.price.toLocaleString("en-IN")}
           </span>
 
           {hasDiscount && (
-            <span className="line-through text-gray-400 text-lg">
+            <span className="line-through text-zinc-600 text-sm sm:text-lg">
               ₹{product.compare_at_price!.toLocaleString("en-IN")}
             </span>
           )}
         </div>
 
         {/* Stock Status */}
-        <div className="mt-4">
+        <div className="mt-3">
           {isOutOfStock ? (
-            <p className="text-red-600 font-semibold">
+            <p className="text-red-400 font-semibold text-xs sm:text-sm">
               📦 Currently unavailable
             </p>
           ) : stock <= 5 ? (
-            <p className="text-orange-600 font-semibold">
+            <p className="text-amber-400 font-semibold text-xs sm:text-sm">
               ⚡ Only {stock} left
             </p>
           ) : (
-            <p className="text-green-600 font-semibold">
+            <p className="text-emerald-400 font-semibold text-xs sm:text-sm">
               ✓ In Stock
             </p>
           )}
         </div>
 
         {/* Delivery Information */}
-        <p className="text-gray-600 text-sm mt-2">
+        <p className="text-zinc-500 text-xs sm:text-sm mt-1">
           🚚 Delivery available
         </p>
 
@@ -157,15 +163,14 @@ export default function ProductCard({
         <button
           onClick={handleAddToCart}
           disabled={isOutOfStock}
-          className={`w-full mt-5 py-3 rounded-xl font-semibold transition ${
+          className={`w-full mt-4 sm:mt-5 py-2.5 sm:py-3 rounded-full text-xs sm:text-sm font-bold tracking-widest uppercase transition-all ${
             isOutOfStock
-              ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-700 text-white"
+              ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+              : "bg-gradient-to-r from-[#d4af37] to-[#f5d77a] text-black hover:shadow-[0_0_18px_rgba(212,175,55,0.5)]"
           }`}
         >
           {isOutOfStock ? "Out of Stock" : "Add to Cart"}
         </button>
-
       </div>
     </div>
   );
